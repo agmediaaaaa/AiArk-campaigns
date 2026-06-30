@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "staffing-upload": "tsx scripts/upload-staffing-campaign.ts",
     "staffing-prepare": "tsx scripts/prepare-staffing-sheet.ts",
-    "staffing-supabase-backfill": "tsx scripts/backfill-staffing-supabase.ts"
+    "staffing-supabase-backfill": "tsx scripts/backfill-staffing-supabase.ts",
+    "staffing-delta": "tsx scripts/staffing-delta-upload.ts"
   },
   "engines": {
     "node": ">=20.0.0"

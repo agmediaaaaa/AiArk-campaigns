@@ -23,46 +23,38 @@ const MAX_WORDS = 60;
 
 const HOOK_PATTERNS = [
   (first: string, talent: string) =>
-    `${first}, we're tied into a couple of employers looking for ${talent} — open to new searches on your end?`,
+    `${first}, we've identified a few companies looking for ${talent} — is that a lane your team covers?`,
   (first: string, talent: string) =>
-    `${first}, quick one — a few companies we work with need ${talent} coverage, could your team help?`,
+    `${first}, we have access to a few companies that need staffing help for ${talent} roles — open to a conversation?`,
   (first: string, talent: string) =>
-    `${first}, a couple buyers we touch are staffing ${talent} roles — worth a look for you?`,
+    `${first}, we can connect you to a few companies hiring ${talent} — worth a look for your bench?`,
   (first: string, talent: string) =>
-    `${first}, we've got access to a few accounts hiring ${talent} — are you taking new reqs?`,
+    `${first}, we've surfaced a few companies that may need ${talent} placement support — is that your lane?`,
   (first: string, talent: string) =>
-    `${first}, wanted to run something by you — employers we know need ${talent} placement, is that your lane?`,
+    `${first}, we have access to a few companies looking for ${talent} talent — are you open to new placement conversations?`,
   (first: string, talent: string) =>
-    `${first}, not sure if this lands — a few clients we know are hiring ${talent}, could you place that?`,
+    `${first}, we've identified a few companies that need staffing help for ${talent} roles — something your team takes on?`,
   (first: string, talent: string) =>
-    `${first}, facilities we work with keep asking about ${talent} coverage — something you take on?`,
+    `${first}, we can connect you to a few companies looking for ${talent} — open to new work right now?`,
   (first: string, talent: string) =>
-    `${first}, a few operators we know are reopening ${talent} searches — open to new work right now?`,
+    `${first}, we have access to a few companies hiring ${talent} — could your team help place that talent?`,
   (first: string, talent: string) =>
-    `${first}, buyers we touch need ${talent} support on contract — does your bench have room?`,
+    `${first}, we've identified a few companies looking for ${talent} talent — is that a fit for your bench?`,
   (first: string, talent: string) =>
-    `${first}, we're connected to a handful of accounts hunting ${talent} — can you help?`
+    `${first}, we can connect you to a few companies that need ${talent} placement support — worth exploring?`
 ];
 
 const CTA_PATTERNS = [
-  "Can walk you through the accounts on a quick call if that helps.",
-  "I'd be glad to share the briefs over a short call.",
-  "Happy to walk you through the accounts whenever you have ten minutes.",
-  "Would be glad to pass the account details on a quick call.",
-  "Let me know if a short call to review the accounts makes sense.",
-  "I can share what we have over a quick call.",
-  "Would be happy to share the accounts with you over a quick call.",
-  "Can walk you through the accounts on a short call if useful.",
-  "Happy to share the rundown over ten minutes.",
-  "Let me know if you want the account briefs on a short call.",
-  "Should I pass assignment briefs that match your placement lane.",
-  "Would be glad to share what we have over a short call.",
-  "Happy to walk you through the accounts on a quick call.",
-  "Can share the accounts with you over a short call if useful.",
-  "I'd be glad to walk you through what's there on a quick call.",
-  "Can pass along the account details on a short call.",
-  "Let me know if a quick call to walk through the accounts works.",
-  "Happy to share what we have on a short call."
+  "Happy to share more on a quick call.",
+  "Would be glad to walk you through what we've found on a short call.",
+  "Let me know if a quick call to compare notes makes sense.",
+  "Can share the details over a ten-minute call if useful.",
+  "Happy to walk you through what we've identified on a quick call.",
+  "Would be glad to share more on a short call.",
+  "Let me know if a quick call works for you.",
+  "Happy to share what we've found on a quick call.",
+  "Can walk you through the details on a short call if useful.",
+  "Would be glad to compare notes on a quick call."
 ];
 
 function firstNameOnly(raw?: string): string {
@@ -131,7 +123,12 @@ export async function personalizeStaffingEmail(
               role: "system",
               content: `Write a 2-line cold email for staffing firm founders. Return ONLY inner HTML (no outer div).
 Format: {hook line}<br></br>{CTA line}
-Rules: under 60 words, first line starts with first name and comma, no Hi/Hello, outcome-focused, one talent type only, CTA offers a quick call to walk through accounts (never send lists). Use <br></br> between lines.`
+Rules: under 60 words, first line starts with first name and comma, no Hi/Hello, outcome-focused, one talent type only.
+NEVER claim existing clients, live job orders, or companies we already work with. Use prospective framing only:
+- "we've identified a few companies looking for {talent}"
+- "we have access to a few companies that need staffing help for {talent} roles"
+- "we can connect you to a few companies hiring {talent}"
+CTA invites a quick call to share what we've found — never mention briefs, accounts, or assignment details. Use <br></br> between lines.`
             },
             {
               role: "user",

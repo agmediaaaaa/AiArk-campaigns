@@ -47,6 +47,53 @@ export type UploadResult =
 
 export type WorkspaceInfo = { id: string; name: string };
 
+export type PlusVibeCampaignLead = {
+  _id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
+  company_website?: string;
+  linkedin_person_url?: string;
+  status?: string;
+  campaign_id?: string;
+};
+
+export async function fetchCampaignLeads(
+  target: UploadTarget,
+  opts: { pageSize?: number; delayMs?: number } = {}
+): Promise<PlusVibeCampaignLead[]> {
+  const pageSize = opts.pageSize ?? 100;
+  const delayMs = opts.delayMs ?? 220;
+  const c = getClient();
+  const leads: PlusVibeCampaignLead[] = [];
+  let page = 1;
+
+  while (true) {
+    const resp = await withRetry(
+      () =>
+        c.get("/api/v1/lead/workspace-leads", {
+          params: {
+            workspace_id: target.workspaceId,
+            campaign_id: target.campaignId,
+            page,
+            limit: pageSize
+          }
+        }),
+      { label: `plusvibe.fetchLeads page=${page}` }
+    );
+    const rows = Array.isArray(resp.data)
+      ? resp.data
+      : ((resp.data?.leads ?? resp.data?.data ?? []) as PlusVibeCampaignLead[]);
+    if (!rows.length) break;
+    leads.push(...rows);
+    if (rows.length < pageSize) break;
+    page++;
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return leads;
+}
+
 export async function listWorkspaces(): Promise<WorkspaceInfo[]> {
   const c = getClient();
   const resp = await withRetry(() => c.get("/api/v1/authenticate"), { label: "plusvibe.authenticate" });
