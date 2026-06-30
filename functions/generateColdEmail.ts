@@ -1,8 +1,10 @@
 import { DEFAULT_CHAT_MODEL, getOpenAI, withRetry } from "../integrations/openai.js";
 import { cleanText } from "./classifyMx.js";
+import { generateColdEmailTemplate } from "./generateColdEmailTemplate.js";
 
 export type ColdEmailInput = {
   firstName?: string;
+  email?: string;
   companyName?: string;
   companyNameNormalized?: string;
   title?: string;
@@ -18,30 +20,24 @@ export type ColdEmailInput = {
 const COLD_EMAIL_MODEL = process.env.COLD_EMAIL_MODEL ?? DEFAULT_CHAT_MODEL;
 
 const BANNED_OPENER_RE =
-  /\b(commendable|impressive|inspiring|innovative approach|great reputation|prime location|paving the way|sets a high standard|making a real difference|your commitment|well done|good work|proudly|leading the way)\b/i;
+  /\b(commendable|impressive|inspiring|innovative approach|great reputation|prime location|paving the way|sets a high standard|making a real difference|your commitment|uniquely positioned|well done|good work|excelling at|enhancing client outcomes)\b/i;
 
 const BANNED_TEASER_RE =
-  /\b(discover|imagine|exceptional|top-tier|elevate|dedicated professionals|skilled professionals ready|access to|await you)\b/i;
+  /\b(discover|imagine|exceptional|top-tier|elevate|dedicated professionals|skilled professionals ready|access to|await you|ready to connect)\b/i;
 
-const FEW_SHOT_OPENERS = `GOOD openers (operational pain, no compliments):
-- Dennis, filling residential beds across three states means counselor gaps hit census before marketing does.
-- Vincent, thirteen Warren-area clinics mean one empty therapist slot ripples across your whole week.
-- Laney, partner onboarding speed depends on people who speak both admissions workflow and EMR integration.
-- Jordan, sleep clinics stall when scoring techs quit mid-quarter and DME orders pile up.
+const FEW_SHOT = `EXAMPLE 1:
+LINE1: Dennis, filling residential beds across three states means counselor gaps hit census before marketing does.
+LINE2: We placed someone last month who walked into a Florida site on day four.
+LINE3: Twelve-year dual diagnosis counselor, residential ready, Florida licensed
+LINE4: Are you currently hiring for dual-diagnosis counselors or RN support this quarter?
 
-BAD openers (never write like this):
-- Elina, your commitment to accessible obesity treatment is commendable.
-- Ricardo, your therapy platform's potential in Portland is impressive.`;
+EXAMPLE 2:
+LINE1: Vincent, thirteen Warren-area clinics mean one empty therapist slot ripples across your whole week.
+LINE2: We filled an outpatient DPT role at a multi-site Ohio group last month.
+LINE3: Ortho and neuro DPT, Warren commutable, floats across multi-site
+LINE4: Are your current openings mainly DPT, OT, or clinic float coverage?
 
-const FEW_SHOT_TEASERS = `GOOD teasers (8-10 words, blind, credential-style):
-- Twelve-year dual diagnosis counselor, residential ready, Florida licensed
-- Ortho and neuro DPT, Warren commutable, floats across multi-site
-- RPSGT with home testing workflow, clinic seasoned, two-week notice
-- Admissions workflow lead, CRM and EMR fluent, remote
-
-BAD teasers (never write like this):
-- Exceptional talent ready to elevate care standards
-- Discover top-tier candidates ready to make a difference`;
+NEVER write compliment openers like "your commitment is commendable" or vague teasers like "discover top-tier talent".`;
 
 function contextBlock(input: ColdEmailInput): string {
   return [
@@ -58,103 +54,28 @@ function contextBlock(input: ColdEmailInput): string {
   ].join("\n");
 }
 
-async function chat(system: string, user: string, temperature = 0.75): Promise<string> {
-  const openai = getOpenAI();
-  const out = await withRetry(
-    () =>
-      openai.chat.completions.create({
-        model: COLD_EMAIL_MODEL,
-        temperature,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user }
-        ]
-      }),
-    { label: "openai.coldEmail.step" }
-  );
-  return (out.choices[0]?.message?.content ?? "").trim().replace(/^["']|["']$/g, "");
-}
+function parseLines(raw: string): string[] {
+  const lines: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const m = line.match(/^LINE[1-4]\s*:\s*(.+)$/i);
+    if (m?.[1]) lines.push(m[1].trim());
+  }
+  if (lines.length === 4) return lines;
 
-async function generateOpener(input: ColdEmailInput, feedback?: string): Promise<string> {
-  const firstName = cleanText(input.firstName);
-  const system = `You write line 1 only of a healthcare staffing cold email.
+  const htmlParts = raw
+    .replace(/^```html?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .replace(/<\/?div>/gi, "")
+    .split(/<br\s*\/?>/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (htmlParts.length >= 4) return htmlParts.slice(0, 4);
 
-Return ONE sentence only. No HTML. No greeting words like Hi or Hello.
-
-Rules:
-- Must start with "${firstName}," then describe a specific operational pain or bottleneck tied to their facility type, services, size, or location.
-- Outcome-focused for the prospect. Never compliment them. Never say commendable, impressive, inspiring, innovative, great reputation, prime location.
-- Sound human and specific, not templated.
-
-${FEW_SHOT_OPENERS}`;
-
-  const user = [
-    contextBlock(input),
-    feedback ? `\nREJECTED — fix this:\n${feedback}` : ""
-  ].join("\n");
-
-  return chat(system, user, 0.8);
-}
-
-async function generateProof(input: ColdEmailInput, opener: string, feedback?: string): Promise<string> {
-  const system = `You write line 2 only of a healthcare staffing cold email.
-
-Return ONE sentence only. No HTML.
-
-Rules:
-- Brief social proof framed as a result for a similar operator (not agency bragging).
-- Do NOT start with "We are" or list credentials. Prefer "Someone we placed..." or "A similar clinic..." style.
-- Under 18 words.`;
-
-  const user = [
-    contextBlock(input),
-    `Line 1 already written: ${opener}`,
-    feedback ? `\nREJECTED — fix this:\n${feedback}` : ""
-  ].join("\n");
-
-  return chat(system, user, 0.7);
-}
-
-async function generateTeaser(input: ColdEmailInput, opener: string, proof: string, feedback?: string): Promise<string> {
-  const system = `You write line 3 only — a blind candidate teaser.
-
-Return ONLY the teaser phrase. No HTML. No names. Exactly 8-10 words.
-
-Rules:
-- Credential-style: years, specialty, license, region, availability, setting.
-- Pull from talent_type and facility context.
-- Never use discover, imagine, exceptional, top-tier, elevate.
-
-${FEW_SHOT_TEASERS}`;
-
-  const user = [
-    contextBlock(input),
-    `Line 1: ${opener}`,
-    `Line 2: ${proof}`,
-    feedback ? `\nREJECTED — fix this:\n${feedback}` : ""
-  ].join("\n");
-
-  return chat(system, user, 0.65);
-}
-
-async function generateCta(input: ColdEmailInput, opener: string, proof: string, teaser: string): Promise<string> {
-  const system = `You write line 4 only — the CTA.
-
-Return ONE sentence only. No HTML. Ends with ?
-
-Rules:
-- Vague. Ask what roles they are hiring for OR assume one role from talent_type and ask if they are hiring for it.
-- Do NOT promise shortlists, instant intros, or guaranteed candidates.
-- Vary phrasing. Under 14 words.`;
-
-  const user = [
-    contextBlock(input),
-    `Line 1: ${opener}`,
-    `Line 2: ${proof}`,
-    `Line 3: ${teaser}`
-  ].join("\n");
-
-  return chat(system, user, 0.85);
+  return raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 4);
 }
 
 function wordCount(text: string): number {
@@ -168,89 +89,87 @@ function validateLines(firstName: string, lines: string[]): { ok: boolean; reaso
   if (!opener?.toLowerCase().startsWith(`${firstName.toLowerCase()},`)) {
     reasons.push("opener must start with first name and comma");
   }
-  if (BANNED_OPENER_RE.test(opener ?? "")) {
-    reasons.push("opener uses compliment or banned phrasing");
-  }
-  if ((proof ?? "").length < 20) {
-    reasons.push("proof line too short");
-  }
-  const teaserWords = wordCount(teaser ?? "");
-  if (teaserWords < 6 || teaserWords > 12) {
-    reasons.push(`teaser must be 8-10 words (got ${teaserWords})`);
-  }
-  if (BANNED_TEASER_RE.test(teaser ?? "")) {
-    reasons.push("teaser uses vague marketing language");
-  }
-  if (!(cta ?? "").includes("?")) {
-    reasons.push("CTA must be a question");
-  }
-  const total = wordCount(lines.join(" "));
-  if (total > 62) {
-    reasons.push(`total word count too high (${total})`);
-  }
+  if (BANNED_OPENER_RE.test(opener ?? "")) reasons.push("opener uses compliment phrasing");
+  if ((proof ?? "").length < 15) reasons.push("proof line too short");
+  if (BANNED_TEASER_RE.test(teaser ?? "")) reasons.push("teaser too vague");
+  const tw = wordCount(teaser ?? "");
+  if (tw < 6 || tw > 12) reasons.push(`teaser word count ${tw}`);
+  if (!(cta ?? "").includes("?")) reasons.push("CTA must be a question");
+  if (wordCount(lines.join(" ")) > 62) reasons.push("total too long");
   return { ok: reasons.length === 0, reasons };
 }
 
 export function assembleColdEmailHtml(lines: string[]): string {
-  const clean = lines.map((l) => l.trim().replace(/<[^>]+>/g, "")).filter(Boolean).slice(0, 4);
+  const clean = lines
+    .map((l) => l.trim().replace(/<[^>]+>/g, "").replace(/^[-–•]\s*/, ""))
+    .filter(Boolean)
+    .slice(0, 4);
   return `<div>${clean.join("<br></br>")}</div>`;
+}
+
+async function generateOnce(input: ColdEmailInput, feedback?: string): Promise<string[]> {
+  const firstName = cleanText(input.firstName);
+  const system = `You write healthcare staffing cold emails as exactly four labeled lines.
+
+Return ONLY:
+LINE1: <opener>
+LINE2: <proof>
+LINE3: <teaser>
+LINE4: <cta>
+
+Rules:
+- Under 60 words total.
+- LINE1 starts with "${firstName}," then a specific operational pain (not a compliment).
+- LINE2: result for a similar operator, not agency bragging.
+- LINE3: blind teaser, 8-10 words, credential-style, no names.
+- LINE4: vague hiring question. No shortlist promises.
+
+${FEW_SHOT}`;
+
+  const user = [contextBlock(input), feedback ? `Fix: ${feedback}` : ""].filter(Boolean).join("\n\n");
+  const openai = getOpenAI();
+  const out = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: COLD_EMAIL_MODEL,
+        temperature: 0.85,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user }
+        ]
+      }),
+    { label: `openai.coldEmail "${firstName}"` }
+  );
+  return parseLines(out.choices[0]?.message?.content?.trim() ?? "");
 }
 
 export async function generateColdEmail(input: ColdEmailInput): Promise<string> {
   const firstName = cleanText(input.firstName);
   if (!firstName) return "";
 
-  const maxAttempts = 3;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      let openerFeedback = "";
-      let proofFeedback = "";
-      let teaserFeedback = "";
-
-      let opener = "";
-      for (let i = 0; i < 2; i++) {
-        opener = await generateOpener(input, openerFeedback || undefined);
-        if (!BANNED_OPENER_RE.test(opener) && opener.toLowerCase().startsWith(`${firstName.toLowerCase()},`)) {
-          break;
-        }
-        openerFeedback = `Avoid compliments. Start with "${firstName}," and name a staffing or operations pain.`;
-      }
-
-      let proof = "";
-      for (let i = 0; i < 2; i++) {
-        proof = await generateProof(input, opener, proofFeedback || undefined);
-        if (proof.length >= 20 && !/^we are\b/i.test(proof)) break;
-        proofFeedback = "Use a result for a similar operator, not agency credentials.";
-      }
-
-      let teaser = "";
-      for (let i = 0; i < 2; i++) {
-        teaser = await generateTeaser(input, opener, proof, teaserFeedback || undefined);
-        const tw = wordCount(teaser);
-        if (tw >= 6 && tw <= 12 && !BANNED_TEASER_RE.test(teaser)) break;
-        teaserFeedback = "Write 8-10 words, credential-style, no discover/exceptional/top-tier.";
-      }
-
-      const cta = await generateCta(input, opener, proof, teaser);
-      const lines = [opener, proof, teaser, cta];
-      const validation = validateLines(firstName, lines);
-
-      if (validation.ok) {
-        return assembleColdEmailHtml(lines);
-      }
-
-      if (attempt === maxAttempts - 1) {
-        console.warn(
-          `[generateColdEmail] ${firstName} validation failed after retries: ${validation.reasons.join("; ")}`
-        );
-        return assembleColdEmailHtml(lines);
-      }
-    } catch (err) {
-      console.warn(`[generateColdEmail] attempt ${attempt + 1} failed: ${(err as Error).message}`);
-      if (attempt === maxAttempts - 1) return "";
-    }
+  if (process.env.TEMPLATE_COLD_EMAIL === "true") {
+    return generateColdEmailTemplate(input);
   }
 
-  return "";
+  let feedback = "";
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const lines = await generateOnce(input, feedback || undefined);
+      const validation = validateLines(firstName, lines);
+      if (validation.ok && lines.length === 4) return assembleColdEmailHtml(lines);
+      feedback = validation.reasons.join("; ");
+      if (attempt === 2) {
+        console.warn(`[generateColdEmail] ${firstName} validation: ${feedback}`);
+        if (lines.length === 4) return assembleColdEmailHtml(lines);
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes("429") || msg.includes("quota")) {
+        console.warn(`[generateColdEmail] ${firstName} OpenAI quota hit, using template fallback`);
+        return generateColdEmailTemplate(input);
+      }
+      console.warn(`[generateColdEmail] ${firstName} attempt ${attempt + 1}: ${msg}`);
+    }
+  }
+  return generateColdEmailTemplate(input);
 }

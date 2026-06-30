@@ -53,12 +53,41 @@ function loadEnrichedFromDirs(dirs: string[]): Row[] {
   return [...byEmail.values()];
 }
 
+function loadCheckpoint(checkpointPath: string): { done: Set<string>; results: Row[] } {
+  const done = new Set<string>();
+  const results: Row[] = [];
+  if (!fs.existsSync(checkpointPath)) return { done, results };
+  const rows = parse(fs.readFileSync(checkpointPath, "utf-8"), {
+    columns: true,
+    skip_empty_lines: true,
+    bom: true
+  }) as Row[];
+  for (const r of rows) {
+    const email = cleanText(r.email).toLowerCase();
+    if (!email) continue;
+    done.add(email);
+    results.push(r);
+  }
+  return { done, results };
+}
+
+function appendCheckpoint(checkpointPath: string, row: Row, header: string[]): void {
+  const line = stringify([row], { header: false, columns: header });
+  if (!fs.existsSync(checkpointPath)) {
+    fs.writeFileSync(checkpointPath, stringify([], { header: true, columns: header }));
+  }
+  fs.appendFileSync(checkpointPath, line);
+}
+
 async function main(): Promise<void> {
   const campaignId = argValue("--campaign");
   const workspaceId = argValue("--workspace") ?? "68cc548e33b6c342f85bd2d9";
   const outDir = argValue("--output") ?? path.resolve("run_outputs_regenerated_upload");
   const pilot = Number(argValue("--pilot") ?? "0");
-  const concurrency = Number(process.env.ROW_CONCURRENCY ?? "4");
+  const resume = process.argv.includes("--resume");
+  const fixEmpty = process.argv.includes("--fix-empty");
+  const concurrency = Number(process.env.ROW_CONCURRENCY ?? "3");
+  const batchSize = Number(process.env.REGEN_BATCH_SIZE ?? "25");
 
   const inputDirs = (
     argValue("--inputs")?.split(",").map((s) => s.trim()).filter(Boolean) ?? [
@@ -71,7 +100,7 @@ async function main(): Promise<void> {
 
   if (!campaignId) {
     throw new Error(
-      "Usage: npx tsx scripts/regenerate-and-upload.ts --campaign <id> [--workspace <id>] [--pilot N] [--inputs dir1,dir2]"
+      "Usage: npx tsx scripts/regenerate-and-upload.ts --campaign <id> [--resume] [--pilot N]"
     );
   }
 
@@ -92,15 +121,50 @@ async function main(): Promise<void> {
   });
   if (pilot > 0) leads = leads.slice(0, pilot);
 
-  console.log(`[regen] loaded ${leads.length} enriched leads from ${inputDirs.length} dirs`);
-  console.log(`[regen] campaign=${campaignId} workspace=${workspaceId} concurrency=${concurrency}`);
-
   fs.mkdirSync(outDir, { recursive: true });
+  const checkpointPath = path.join(outDir, "checkpoint.csv");
+  const { done: doneEmails, results: checkpointResults } = resume
+    ? loadCheckpoint(checkpointPath)
+    : { done: new Set<string>(), results: [] as Row[] };
 
-  let done = 0;
-  const results = await mapPool(leads, concurrency, async (row) => {
+  const emptyInCheckpoint = new Set(
+    checkpointResults.filter((r) => !cleanText(r.cold_email)).map((r) => cleanText(r.email).toLowerCase())
+  );
+
+  let results = [...checkpointResults.filter((r) => cleanText(r.cold_email))];
+
+  const pending = leads.filter((r) => {
+    const email = cleanText(r.email).toLowerCase();
+    if (fixEmpty && emptyInCheckpoint.has(email)) return true;
+    return !doneEmails.has(email);
+  });
+
+  console.log(
+    `[regen] total=${leads.length} resume=${resume} already_done=${doneEmails.size} pending=${pending.length}`
+  );
+  console.log(`[regen] campaign=${campaignId} model=${process.env.COLD_EMAIL_MODEL ?? "gpt-4o-mini"}`);
+
+  const resultHeader = [
+    "email",
+    "first_name",
+    "last_name",
+    "company_name",
+    "facility_type",
+    "talent_type",
+    "cold_email",
+    "cold_email_old",
+    "upload_ok",
+    "upload_error",
+    "plusvibe_campaign_id"
+  ];
+
+  let processed = 0;
+
+  async function processOne(row: Row): Promise<Row> {
+    const email = cleanText(row.email).toLowerCase();
     const coldEmail = await generateColdEmail({
       firstName: row.first_name,
+      email: row.email,
       companyName: row.company_name,
       companyNameNormalized: row.company_name_normalized,
       title: row.title,
@@ -114,7 +178,7 @@ async function main(): Promise<void> {
     });
 
     const payload: PlusVibeLeadPayload = {
-      email: cleanText(row.email).toLowerCase(),
+      email,
       first_name: cleanText(row.first_name) || undefined,
       last_name: cleanText(row.last_name) || undefined,
       company_name: cleanText(row.company_name_normalized) || cleanText(row.company_name) || undefined,
@@ -145,23 +209,40 @@ async function main(): Promise<void> {
       }
     };
 
-    const upload = await uploadLead(payload, { workspaceId, campaignId });
-    done++;
-    if (done % 25 === 0) console.log(`[regen] progress ${done}/${leads.length}`);
-
+    const upload = coldEmail
+      ? await uploadLead(payload, { workspaceId, campaignId })
+      : { ok: false, campaignId, workspaceId, error: "empty cold_email" };
     return {
-      ...row,
+      email,
+      first_name: cleanText(row.first_name),
+      last_name: cleanText(row.last_name),
+      company_name: cleanText(row.company_name),
+      facility_type: cleanText(row.facility_type),
+      talent_type: cleanText(row.talent_type),
       cold_email: coldEmail,
       cold_email_old: row.cold_email ?? "",
       upload_ok: upload.ok ? "true" : "false",
       upload_error: upload.ok ? "" : upload.error,
       plusvibe_campaign_id: campaignId
     };
-  });
+  }
+
+  for (let i = 0; i < pending.length; i += batchSize) {
+    const batch = pending.slice(i, i + batchSize);
+    const batchResults = await mapPool(batch, concurrency, (row) => processOne(row));
+    for (const resultRow of batchResults) {
+      if (!cleanText(resultRow.cold_email)) {
+        console.warn(`[regen] skip checkpoint (empty email): ${resultRow.email}`);
+        continue;
+      }
+      results.push(resultRow);
+      appendCheckpoint(checkpointPath, resultRow, resultHeader);
+    }
+    processed += batchResults.length;
+    console.log(`[regen] progress ${doneEmails.size + processed}/${leads.length}`);
+  }
 
   const uploaded = results.filter((r) => r.upload_ok === "true").length;
-  const failed = results.length - uploaded;
-
   fs.writeFileSync(path.join(outDir, "regenerated_leads.csv"), stringify(results, { header: true }));
   fs.writeFileSync(
     path.join(outDir, "run_summary.json"),
@@ -172,7 +253,7 @@ async function main(): Promise<void> {
         workspace_id: workspaceId,
         total: results.length,
         uploaded_ok: uploaded,
-        uploaded_failed: failed,
+        uploaded_failed: results.length - uploaded,
         model: process.env.COLD_EMAIL_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4o-mini"
       },
       null,
