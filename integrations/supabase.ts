@@ -39,11 +39,12 @@ export async function upsertLeads(
   rows: SupabaseLeadRow[],
   opts: { chunkSize?: number } = {}
 ): Promise<UpsertReport> {
-  const chunkSize = opts.chunkSize ?? 500;
+  const chunkSize = opts.chunkSize ?? 50;
   const report: UpsertReport = { attempted: rows.length, succeeded: 0, failed: 0, errors: [] };
   if (rows.length === 0) return report;
 
   const supabase = getSupabase();
+  const useRpc = process.env.SUPABASE_USE_RPC !== "false";
   const onConflict = process.env.SUPABASE_ON_CONFLICT ?? "Email";
   const stamped = rows.map((r) => ({ ...r }));
 
@@ -53,14 +54,19 @@ export async function upsertLeads(
     try {
       await withRetry(
         async () => {
-          const { error } = await supabase
-            .from(SUPABASE_TABLE)
-            .upsert(chunk, { onConflict, ignoreDuplicates: false });
-          if (error) {
-            const status = (error as { status?: number }).status;
-            const wrapped: Error & { status?: number } = new Error(error.message);
-            wrapped.status = status;
-            throw wrapped;
+          if (useRpc) {
+            const { error } = await supabase.rpc("upsert_lead_database_rows", { payload: chunk });
+            if (error) throw new Error(error.message);
+          } else {
+            const { error } = await supabase
+              .from(SUPABASE_TABLE)
+              .upsert(chunk, { onConflict, ignoreDuplicates: false });
+            if (error) {
+              const status = (error as { status?: number }).status;
+              const wrapped: Error & { status?: number } = new Error(error.message);
+              wrapped.status = status;
+              throw wrapped;
+            }
           }
         },
         { label: `supabase.upsert chunk=${chunkIdx}` }
