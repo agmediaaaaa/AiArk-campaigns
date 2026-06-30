@@ -30,3 +30,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# staffing run artifacts
+staffing_zs_*_run*/
+staffing_zs_trykitt_smoke/

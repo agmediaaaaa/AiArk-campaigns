@@ -7,6 +7,8 @@ import { stringify } from "csv-stringify/sync";
 import { classifyMx, cleanText, resolveLeadDomain, type MxResult } from "../functions/classifyMx.js";
 import { enrichStaffingTalent } from "../functions/enrichStaffingTalent.js";
 import { personalizeStaffingEmail, personalizeStaffingEmailLocal } from "../functions/personalizeStaffingEmail.js";
+import { findEmailsBatch, type FindEmailResult } from "../functions/findEmail.js";
+import { verifyEmail } from "../functions/verifyEmail.js";
 import { routeCampaign, type CampaignsConfig } from "../functions/routeCampaign.js";
 import { mapPool } from "../functions/mapPool.js";
 import {
@@ -154,7 +156,8 @@ async function processRow(
   rowIndex: number,
   dryRun: boolean,
   openaiScripts: boolean,
-  skipEnrich: boolean
+  skipEnrich: boolean,
+  trykittCache: Map<number, FindEmailResult>
 ): Promise<{ kind: "removed"; removed: RemovedLead } | { kind: "uploaded"; uploaded: UploadedLead; payload: PlusVibeLeadPayload }> {
   const firstName = salutationFirstName(raw);
   const lastName = cleanText(raw.last_name);
@@ -166,16 +169,26 @@ async function processRow(
   });
 
   const emailBusiness = cleanText(raw.email_business);
-  if (!emailBusiness) return drop("no_email_found");
-
-  const mx = await resolveMx(raw, emailBusiness);
-  if ("kind" in mx) {
-    return drop(mx.kind === "seg" ? "security_gateway" : "outlook_skipped", emailBusiness, mx.mxData);
+  let activeEmail = "";
+  let emailSource: "csv" | "trykit" = "csv";
+  if (emailBusiness) {
+    activeEmail = emailBusiness.toLowerCase();
+  } else {
+    const found = trykittCache.get(rowIndex);
+    if (!found?.email) return drop("no_email_found", "", found?.domainUsed || "trykitt_not_found");
+    const verified = await verifyEmail(found.email);
+    if (!verified.accepted) return drop("email_unverified", found.email, verified.status);
+    activeEmail = found.email.toLowerCase();
+    emailSource = "trykit";
   }
-  if (mx.isSeg) return drop("security_gateway", emailBusiness, mx.mxData);
-  if (mx.esp === "outlook") return drop("outlook_skipped", emailBusiness, mx.mxData);
 
-  const activeEmail = emailBusiness.toLowerCase();
+  const mx = await resolveMx(raw, activeEmail);
+  if ("kind" in mx) {
+    return drop(mx.kind === "seg" ? "security_gateway" : "outlook_skipped", activeEmail, mx.mxData);
+  }
+  if (mx.isSeg) return drop("security_gateway", activeEmail, mx.mxData);
+  if (mx.esp === "outlook") return drop("outlook_skipped", activeEmail, mx.mxData);
+  if (mx.esp !== "google" && mx.esp !== "others") return drop("esp_not_allowed", activeEmail, mx.esp);
 
   let clientType = "";
   let talentType = "";
@@ -190,7 +203,9 @@ async function processRow(
     talentType = staffing.talentType;
   }
 
-  const route = routeCampaign(raw.domain_settings, config.campaigns);
+  const route = routeCampaign(raw.domain_settings, config.campaigns, {
+    treatEmptyAsSmtp: emailSource === "trykit" || cleanText(raw.domain_settings) === ""
+  });
   if (!route.ok) return drop("unknown_domain_setting", activeEmail, route.rawValue);
 
   let emailBody = wrapEmailBody(raw);
@@ -248,7 +263,7 @@ async function processRow(
     company_website: cleanText(raw.company_website),
     email_body: emailBody,
     domain_settings: route.setting,
-    email_source: "csv",
+    email_source: emailSource,
     plusvibe_workspace_id: workspaceId,
     plusvibe_campaign_id: route.target.campaignId,
     upload_ok: dryRun ? "dry_run" : "pending",
@@ -280,7 +295,9 @@ async function run(): Promise<void> {
   const uploadBatchSize = Math.max(1, Number(argValue("--upload-batch") ?? "25"));
 
   if (!skipUpload && !dryRun) {
-    const missing = ["PLUSVIBE_KEY", "OPENAI_API_KEY"].filter((k) => !process.env[k]);
+    const missing = ["PLUSVIBE_KEY", "OPENAI_API_KEY", "TRYKITT_API_KEY", "MILLIONVERIFIER_API_KEY"].filter(
+      (k) => !process.env[k]
+    );
     if (missing.length) throw new Error(`Missing env vars: ${missing.join(", ")}`);
     if (!skipEnrich && missing.includes("OPENAI_API_KEY")) {
       throw new Error("OPENAI_API_KEY required for enrichment");
@@ -292,20 +309,9 @@ async function run(): Promise<void> {
   config.campaigns.catchAll.campaignId = campaignId;
 
   const leadsAll = readLeadsCsv(input);
-  let leads = leadsAll.filter((r) => cleanText(r.email_business));
+  let leads = leadsAll;
   if (start > 0) leads = leads.slice(start);
   if (limit > 0) leads = leads.slice(0, limit);
-
-  const noEmailRemoved: RemovedLead[] = leadsAll
-    .filter((r) => !cleanText(r.email_business))
-    .map((r) => ({
-      first_name: salutationFirstName(r),
-      last_name: cleanText(r.last_name),
-      company_name: cleanText(r.company_name),
-      email: "",
-      reason: "no_email_found",
-      detail: "skipped without enrichment"
-    }));
 
   const workspaceId =
     dryRun || skipUpload
@@ -316,7 +322,7 @@ async function run(): Promise<void> {
 
   fs.mkdirSync(outDir, { recursive: true });
 
-  console.log(`[staffing] batch ${start}..${start + leads.length} of ${leadsAll.length} total (${leads.length} with email in batch)`);
+  console.log(`[staffing] batch ${start}..${start + leads.length} of ${leadsAll.length} total (${leads.length} rows in batch)`);
   console.log(`[staffing] workspace=${workspaceId} campaign=${campaignId}`);
   console.log(
     `[staffing] dryRun=${dryRun} skipUpload=${skipUpload} skipEnrich=${skipEnrich} openaiScripts=${openaiScripts} concurrency=${concurrency}`
@@ -325,6 +331,28 @@ async function run(): Promise<void> {
   const uploaded: UploadedLead[] = [];
   const removed: RemovedLead[] = [];
   const uploadQueue: PlusVibeLeadPayload[] = [];
+  const trykittCache = new Map<number, FindEmailResult>();
+
+  const trykittItems = leads
+    .map((raw, i) => ({ raw, i }))
+    .filter(({ raw }) => !cleanText(raw.email_business))
+    .map(({ raw, i }) => ({
+      key: start + i,
+      firstName: salutationFirstName(raw),
+      lastName: cleanText(raw.last_name),
+      companyName: cleanText(raw.company_name),
+      companyWebsite: cleanText(raw.company_website),
+      personLinkedin: cleanText(raw.linkedin)
+    }));
+  if (trykittItems.length > 0) {
+    console.log(`[staffing] trykitt prefetch ${trykittItems.length} rows`);
+    const batch = await findEmailsBatch(trykittItems);
+    for (const [k, v] of batch) {
+      trykittCache.set(Number(k), v);
+    }
+    const found = [...batch.values()].filter((v) => !!v.email).length;
+    console.log(`[staffing] trykitt found ${found}/${trykittItems.length}`);
+  }
 
   let completed = 0;
   const outcomes = await mapPool(leads, concurrency, async (raw, i) => {
@@ -335,7 +363,8 @@ async function run(): Promise<void> {
       start + i,
       dryRun,
       openaiScripts,
-      skipEnrich
+      skipEnrich,
+      trykittCache
     );
     completed++;
     if (completed % 25 === 0 || completed === leads.length) {
@@ -352,8 +381,6 @@ async function run(): Promise<void> {
     uploaded.push(outcome.uploaded);
     if (!dryRun && !skipUpload) uploadQueue.push(outcome.payload);
   }
-  if (start === 0) removed.push(...noEmailRemoved);
-
   let uploadOk = 0;
   let uploadFailed = 0;
   const uploadErrors: Array<{ email: string; error: string }> = [];
@@ -400,7 +427,7 @@ async function run(): Promise<void> {
         workspace_id: workspaceId,
         campaign_id: campaignId,
         total_in_file: leadsAll.length,
-        batch_with_email: leads.length,
+        batch_rows: leads.length,
         uploaded: uploaded.length,
         removed: removed.length,
         plusvibe_ok: uploadOk,
