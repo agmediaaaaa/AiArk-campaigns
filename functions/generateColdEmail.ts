@@ -15,27 +15,37 @@ export type ColdEmailInput = {
   talentType?: string;
 };
 
-const SYSTEM = `You write short outcome-focused healthcare staffing cold emails.
+const COLD_EMAIL_MODEL = process.env.COLD_EMAIL_MODEL ?? DEFAULT_CHAT_MODEL;
 
-Return ONLY the email body HTML using exactly this structure:
-<div>line1<br></br>line2<br></br>teaser line<br></br>CTA line</div>
+const BANNED_OPENER_RE =
+  /\b(commendable|impressive|inspiring|innovative approach|great reputation|prime location|paving the way|sets a high standard|making a real difference|your commitment|well done|good work|proudly|leading the way)\b/i;
 
-Rules:
-- Exactly four content lines inside the div, separated by <br></br> only.
-- Under 60 words total across all four lines.
-- Line 1 MUST start with "{first_name}," then a comma and a specific outcome-focused observation tied to their facility, location, or services. Never put the first name alone on its own line.
-- No Hi, Hello, or other salutation. No signature. No sender company name. No spam words or symbols.
-- Outcome-focused for the prospect. Talk about what they get, not how good the sender is.
-- Line 2: one short sentence of proof framed as a result for a similar operator (not agency credentials).
-- Line 3: blind candidate teaser only, 8-10 words, no person names.
-- Line 4: vague CTA. Ask what roles they are hiring for OR assume one role from talent_type and ask if they are hiring for it. Do NOT promise immediate shortlists, instant connects, or guaranteed candidates.
-- Human tone. Not templated or robotic. Unique phrasing each time.
-- Use facility_type, talent_type, location, size, and company context naturally.`;
+const BANNED_TEASER_RE =
+  /\b(discover|imagine|exceptional|top-tier|elevate|dedicated professionals|skilled professionals ready|access to|await you)\b/i;
 
-function prompt(input: ColdEmailInput): string {
-  const firstName = cleanText(input.firstName);
+const FEW_SHOT_OPENERS = `GOOD openers (operational pain, no compliments):
+- Dennis, filling residential beds across three states means counselor gaps hit census before marketing does.
+- Vincent, thirteen Warren-area clinics mean one empty therapist slot ripples across your whole week.
+- Laney, partner onboarding speed depends on people who speak both admissions workflow and EMR integration.
+- Jordan, sleep clinics stall when scoring techs quit mid-quarter and DME orders pile up.
+
+BAD openers (never write like this):
+- Elina, your commitment to accessible obesity treatment is commendable.
+- Ricardo, your therapy platform's potential in Portland is impressive.`;
+
+const FEW_SHOT_TEASERS = `GOOD teasers (8-10 words, blind, credential-style):
+- Twelve-year dual diagnosis counselor, residential ready, Florida licensed
+- Ortho and neuro DPT, Warren commutable, floats across multi-site
+- RPSGT with home testing workflow, clinic seasoned, two-week notice
+- Admissions workflow lead, CRM and EMR fluent, remote
+
+BAD teasers (never write like this):
+- Exceptional talent ready to elevate care standards
+- Discover top-tier candidates ready to make a difference`;
+
+function contextBlock(input: ColdEmailInput): string {
   return [
-    `First Name: ${firstName}`,
+    `First Name: ${cleanText(input.firstName)}`,
     `Title: ${cleanText(input.title)}`,
     `Company: ${cleanText(input.companyNameNormalized) || cleanText(input.companyName)}`,
     `City: ${cleanText(input.city)}`,
@@ -43,59 +53,204 @@ function prompt(input: ColdEmailInput): string {
     `Company Size: ${cleanText(input.companySize)}`,
     `Facility Type: ${cleanText(input.facilityType)}`,
     `Talent Type: ${cleanText(input.talentType)}`,
-    `Products/Services: ${cleanText(input.companyProductsServices)}`,
-    `Description: ${cleanText(input.companyDescription)}`,
-    "",
-    `Remember: line 1 must begin "${firstName}," followed by the observation.`
+    `Products/Services: ${cleanText(input.companyProductsServices).slice(0, 500)}`,
+    `Description: ${cleanText(input.companyDescription).slice(0, 800)}`
   ].join("\n");
+}
+
+async function chat(system: string, user: string, temperature = 0.75): Promise<string> {
+  const openai = getOpenAI();
+  const out = await withRetry(
+    () =>
+      openai.chat.completions.create({
+        model: COLD_EMAIL_MODEL,
+        temperature,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user }
+        ]
+      }),
+    { label: "openai.coldEmail.step" }
+  );
+  return (out.choices[0]?.message?.content ?? "").trim().replace(/^["']|["']$/g, "");
+}
+
+async function generateOpener(input: ColdEmailInput, feedback?: string): Promise<string> {
+  const firstName = cleanText(input.firstName);
+  const system = `You write line 1 only of a healthcare staffing cold email.
+
+Return ONE sentence only. No HTML. No greeting words like Hi or Hello.
+
+Rules:
+- Must start with "${firstName}," then describe a specific operational pain or bottleneck tied to their facility type, services, size, or location.
+- Outcome-focused for the prospect. Never compliment them. Never say commendable, impressive, inspiring, innovative, great reputation, prime location.
+- Sound human and specific, not templated.
+
+${FEW_SHOT_OPENERS}`;
+
+  const user = [
+    contextBlock(input),
+    feedback ? `\nREJECTED — fix this:\n${feedback}` : ""
+  ].join("\n");
+
+  return chat(system, user, 0.8);
+}
+
+async function generateProof(input: ColdEmailInput, opener: string, feedback?: string): Promise<string> {
+  const system = `You write line 2 only of a healthcare staffing cold email.
+
+Return ONE sentence only. No HTML.
+
+Rules:
+- Brief social proof framed as a result for a similar operator (not agency bragging).
+- Do NOT start with "We are" or list credentials. Prefer "Someone we placed..." or "A similar clinic..." style.
+- Under 18 words.`;
+
+  const user = [
+    contextBlock(input),
+    `Line 1 already written: ${opener}`,
+    feedback ? `\nREJECTED — fix this:\n${feedback}` : ""
+  ].join("\n");
+
+  return chat(system, user, 0.7);
+}
+
+async function generateTeaser(input: ColdEmailInput, opener: string, proof: string, feedback?: string): Promise<string> {
+  const system = `You write line 3 only — a blind candidate teaser.
+
+Return ONLY the teaser phrase. No HTML. No names. Exactly 8-10 words.
+
+Rules:
+- Credential-style: years, specialty, license, region, availability, setting.
+- Pull from talent_type and facility context.
+- Never use discover, imagine, exceptional, top-tier, elevate.
+
+${FEW_SHOT_TEASERS}`;
+
+  const user = [
+    contextBlock(input),
+    `Line 1: ${opener}`,
+    `Line 2: ${proof}`,
+    feedback ? `\nREJECTED — fix this:\n${feedback}` : ""
+  ].join("\n");
+
+  return chat(system, user, 0.65);
+}
+
+async function generateCta(input: ColdEmailInput, opener: string, proof: string, teaser: string): Promise<string> {
+  const system = `You write line 4 only — the CTA.
+
+Return ONE sentence only. No HTML. Ends with ?
+
+Rules:
+- Vague. Ask what roles they are hiring for OR assume one role from talent_type and ask if they are hiring for it.
+- Do NOT promise shortlists, instant intros, or guaranteed candidates.
+- Vary phrasing. Under 14 words.`;
+
+  const user = [
+    contextBlock(input),
+    `Line 1: ${opener}`,
+    `Line 2: ${proof}`,
+    `Line 3: ${teaser}`
+  ].join("\n");
+
+  return chat(system, user, 0.85);
+}
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function validateLines(firstName: string, lines: string[]): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const [opener, proof, teaser, cta] = lines;
+
+  if (!opener?.toLowerCase().startsWith(`${firstName.toLowerCase()},`)) {
+    reasons.push("opener must start with first name and comma");
+  }
+  if (BANNED_OPENER_RE.test(opener ?? "")) {
+    reasons.push("opener uses compliment or banned phrasing");
+  }
+  if ((proof ?? "").length < 20) {
+    reasons.push("proof line too short");
+  }
+  const teaserWords = wordCount(teaser ?? "");
+  if (teaserWords < 6 || teaserWords > 12) {
+    reasons.push(`teaser must be 8-10 words (got ${teaserWords})`);
+  }
+  if (BANNED_TEASER_RE.test(teaser ?? "")) {
+    reasons.push("teaser uses vague marketing language");
+  }
+  if (!(cta ?? "").includes("?")) {
+    reasons.push("CTA must be a question");
+  }
+  const total = wordCount(lines.join(" "));
+  if (total > 62) {
+    reasons.push(`total word count too high (${total})`);
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
+export function assembleColdEmailHtml(lines: string[]): string {
+  const clean = lines.map((l) => l.trim().replace(/<[^>]+>/g, "")).filter(Boolean).slice(0, 4);
+  return `<div>${clean.join("<br></br>")}</div>`;
 }
 
 export async function generateColdEmail(input: ColdEmailInput): Promise<string> {
   const firstName = cleanText(input.firstName);
   if (!firstName) return "";
 
-  try {
-    const openai = getOpenAI();
-    const out = await withRetry(
-      () =>
-        openai.chat.completions.create({
-          model: DEFAULT_CHAT_MODEL,
-          temperature: 0.9,
-          messages: [
-            { role: "system", content: SYSTEM },
-            { role: "user", content: prompt(input) }
-          ]
-        }),
-      { label: `openai.coldEmail "${firstName}"` }
-    );
+  const maxAttempts = 3;
 
-    const raw = out.choices[0]?.message?.content?.trim() ?? "";
-    return sanitizeColdEmail(raw, firstName);
-  } catch (err) {
-    console.warn(`[generateColdEmail] fallback empty: ${(err as Error).message}`);
-    return "";
-  }
-}
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      let openerFeedback = "";
+      let proofFeedback = "";
+      let teaserFeedback = "";
 
-function sanitizeColdEmail(raw: string, firstName: string): string {
-  let html = raw.replace(/^```html?\s*/i, "").replace(/```\s*$/i, "").trim();
-  if (!html.startsWith("<div>")) {
-    html = `<div>${html}</div>`;
+      let opener = "";
+      for (let i = 0; i < 2; i++) {
+        opener = await generateOpener(input, openerFeedback || undefined);
+        if (!BANNED_OPENER_RE.test(opener) && opener.toLowerCase().startsWith(`${firstName.toLowerCase()},`)) {
+          break;
+        }
+        openerFeedback = `Avoid compliments. Start with "${firstName}," and name a staffing or operations pain.`;
+      }
+
+      let proof = "";
+      for (let i = 0; i < 2; i++) {
+        proof = await generateProof(input, opener, proofFeedback || undefined);
+        if (proof.length >= 20 && !/^we are\b/i.test(proof)) break;
+        proofFeedback = "Use a result for a similar operator, not agency credentials.";
+      }
+
+      let teaser = "";
+      for (let i = 0; i < 2; i++) {
+        teaser = await generateTeaser(input, opener, proof, teaserFeedback || undefined);
+        const tw = wordCount(teaser);
+        if (tw >= 6 && tw <= 12 && !BANNED_TEASER_RE.test(teaser)) break;
+        teaserFeedback = "Write 8-10 words, credential-style, no discover/exceptional/top-tier.";
+      }
+
+      const cta = await generateCta(input, opener, proof, teaser);
+      const lines = [opener, proof, teaser, cta];
+      const validation = validateLines(firstName, lines);
+
+      if (validation.ok) {
+        return assembleColdEmailHtml(lines);
+      }
+
+      if (attempt === maxAttempts - 1) {
+        console.warn(
+          `[generateColdEmail] ${firstName} validation failed after retries: ${validation.reasons.join("; ")}`
+        );
+        return assembleColdEmailHtml(lines);
+      }
+    } catch (err) {
+      console.warn(`[generateColdEmail] attempt ${attempt + 1} failed: ${(err as Error).message}`);
+      if (attempt === maxAttempts - 1) return "";
+    }
   }
-  html = html.replace(/<br\s*\/?>/gi, "<br></br>");
-  html = html.replace(/(<br><\/br>){2,}/gi, "<br></br>");
-  const inner = html.replace(/^<div>/, "").replace(/<\/div>$/, "").trim();
-  const parts = inner
-    .split(/<br><\/br>/i)
-    .map((p) => p.trim())
-    .filter(Boolean);
-  if (parts.length >= 1 && !parts[0]!.toLowerCase().startsWith(firstName.toLowerCase())) {
-    parts[0] = `${firstName}, ${parts[0]}`;
-  }
-  if (parts.length >= 1 && parts[0]!.toLowerCase() === firstName.toLowerCase() && parts.length > 1) {
-    parts[0] = `${firstName}, ${parts[1]}`;
-    parts.splice(1, 1);
-  }
-  const rebuilt = parts.slice(0, 4).join("<br></br>");
-  return `<div>${rebuilt}</div>`.replace(/(<br><\/br>){2,}/gi, "<br></br>");
+
+  return "";
 }
