@@ -4,12 +4,13 @@ import { withRetry } from "./openai.js";
 
 let client: SupabaseClient | null = null;
 
-export function getSupabase(): SupabaseClient {
+export function getSupabase(): SupabaseClient | null {
+  if (process.env.SKIP_SUPABASE === "true") return null;
   if (client) return client;
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_KEY;
   if (!url || !key) {
-    throw new Error("SUPABASE_URL/SUPABASE_KEY not set; the startup gate should have caught this.");
+    return null;
   }
   client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false }
@@ -64,8 +65,10 @@ export async function lookupLeadEmail(input: SupabaseLookupInput): Promise<strin
 
   if (!linkedin && !(firstName && lastName)) return null;
 
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
   try {
-    const supabase = getSupabase();
 
     if (linkedin) {
       const norm = normalizeLinkedin(linkedin);
@@ -135,6 +138,10 @@ export async function upsertLeads(
   if (rows.length === 0) return report;
 
   const supabase = getSupabase();
+  if (!supabase) {
+    console.warn("[supabase] skipped upsert: SUPABASE_URL/SUPABASE_KEY not configured");
+    return report;
+  }
   const onConflict = process.env.SUPABASE_ON_CONFLICT ?? "Email";
   const stamped = rows.map((r) => ({ ...r }));
 

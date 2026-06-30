@@ -21,19 +21,21 @@ Return ONLY the email body HTML using exactly this structure:
 <div>line1<br></br>line2<br></br>teaser line<br></br>CTA line</div>
 
 Rules:
+- Exactly four content lines inside the div, separated by <br></br> only.
 - Under 60 words total across all four lines.
-- Start line 1 with the prospect first name only. No Hi, Hello, or other salutation.
-- No signature. No company name of the sender. No spam words or symbols.
+- Line 1 MUST start with "{first_name}," then a comma and a specific outcome-focused observation tied to their facility, location, or services. Never put the first name alone on its own line.
+- No Hi, Hello, or other salutation. No signature. No sender company name. No spam words or symbols.
 - Outcome-focused for the prospect. Talk about what they get, not how good the sender is.
-- Line 2: brief social proof as a result (not agency credentials).
-- Line 3: blind candidate teaser, 8-10 words, no names.
-- Line 4: vague CTA. Ask what roles they are hiring for OR assume a role from talent_type and ask if they are hiring for it. Do NOT promise immediate shortlists, instant connects, or guaranteed candidates.
+- Line 2: one short sentence of proof framed as a result for a similar operator (not agency credentials).
+- Line 3: blind candidate teaser only, 8-10 words, no person names.
+- Line 4: vague CTA. Ask what roles they are hiring for OR assume one role from talent_type and ask if they are hiring for it. Do NOT promise immediate shortlists, instant connects, or guaranteed candidates.
 - Human tone. Not templated or robotic. Unique phrasing each time.
 - Use facility_type, talent_type, location, size, and company context naturally.`;
 
 function prompt(input: ColdEmailInput): string {
+  const firstName = cleanText(input.firstName);
   return [
-    `First Name: ${cleanText(input.firstName)}`,
+    `First Name: ${firstName}`,
     `Title: ${cleanText(input.title)}`,
     `Company: ${cleanText(input.companyNameNormalized) || cleanText(input.companyName)}`,
     `City: ${cleanText(input.city)}`,
@@ -42,7 +44,9 @@ function prompt(input: ColdEmailInput): string {
     `Facility Type: ${cleanText(input.facilityType)}`,
     `Talent Type: ${cleanText(input.talentType)}`,
     `Products/Services: ${cleanText(input.companyProductsServices)}`,
-    `Description: ${cleanText(input.companyDescription)}`
+    `Description: ${cleanText(input.companyDescription)}`,
+    "",
+    `Remember: line 1 must begin "${firstName}," followed by the observation.`
   ].join("\n");
 }
 
@@ -78,12 +82,20 @@ function sanitizeColdEmail(raw: string, firstName: string): string {
   if (!html.startsWith("<div>")) {
     html = `<div>${html}</div>`;
   }
-  if (!html.endsWith("</div>")) {
-    html = `${html}</div>`;
-  }
   html = html.replace(/<br\s*\/?>/gi, "<br></br>");
-  if (!html.includes(firstName)) {
-    html = html.replace(/^<div>/, `<div>${firstName}, `);
+  html = html.replace(/(<br><\/br>){2,}/gi, "<br></br>");
+  const inner = html.replace(/^<div>/, "").replace(/<\/div>$/, "").trim();
+  const parts = inner
+    .split(/<br><\/br>/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length >= 1 && !parts[0]!.toLowerCase().startsWith(firstName.toLowerCase())) {
+    parts[0] = `${firstName}, ${parts[0]}`;
   }
-  return html;
+  if (parts.length >= 1 && parts[0]!.toLowerCase() === firstName.toLowerCase() && parts.length > 1) {
+    parts[0] = `${firstName}, ${parts[1]}`;
+    parts.splice(1, 1);
+  }
+  const rebuilt = parts.slice(0, 4).join("<br></br>");
+  return `<div>${rebuilt}</div>`.replace(/(<br><\/br>){2,}/gi, "<br></br>");
 }
