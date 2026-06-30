@@ -113,6 +113,9 @@ async function main(): Promise<void> {
   }
 
   const merged = [...byKey.values()];
+  const mergedPath = path.join(outDir, "merged_leads.csv");
+  fs.writeFileSync(mergedPath, stringify(merged, { header: true }));
+
   const excluded: Array<{ reason: string; email: string; first_name: string; company_name: string }> = [];
   const netNew: LeadRow[] = [];
 
@@ -146,6 +149,7 @@ async function main(): Promise<void> {
         merged_unique: merged.length,
         excluded_already_in_plusvibe: excluded.length,
         net_new: netNew.length,
+        merged_csv: mergedPath,
         net_new_csv: netNewPath
       },
       null,
@@ -154,9 +158,12 @@ async function main(): Promise<void> {
   );
 
   console.log(
-    `[delta] merged=${merged.length} excluded=${excluded.length} net_new=${netNew.length} -> ${netNewPath}`
+    `[delta] merged=${merged.length} sheet-excluded=${excluded.length} net_new=${netNew.length}`
   );
-  console.log(`[delta] run upload: npm run staffing-upload -- --input ${netNewPath} --out-dir ${outDir}/upload_run`);
+  console.log(`[delta] merged csv: ${mergedPath}`);
+  console.log(
+    `[delta] run: npm run staffing-upload -- --input ${mergedPath} --out-dir ${outDir}/upload_run --prior-runs staffing_zs_full_run_tk,staffing_zs_sheet2_run_tk,staffing_zs_sheet3_run_tk --exclude-plusvibe --skip-supabase`
+  );
 }
 
 main().catch((err) => {

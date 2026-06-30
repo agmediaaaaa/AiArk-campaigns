@@ -13,7 +13,8 @@
     "staffing-upload": "tsx scripts/upload-staffing-campaign.ts",
     "staffing-prepare": "tsx scripts/prepare-staffing-sheet.ts",
     "staffing-supabase-backfill": "tsx scripts/backfill-staffing-supabase.ts",
-    "staffing-delta": "tsx scripts/staffing-delta-upload.ts"
+    "staffing-delta": "tsx scripts/staffing-delta-upload.ts",
+    "staffing-delta-run": "tsx scripts/staffing-delta-upload.ts --out-dir staffing_zs_delta_run && tsx scripts/upload-staffing-campaign.ts --input staffing_zs_delta_run/merged_leads.csv --out-dir staffing_zs_delta_run/upload_run --prior-runs staffing_zs_full_run_tk,staffing_zs_sheet2_run_tk,staffing_zs_sheet3_run_tk --exclude-plusvibe --skip-supabase --concurrency 10 --upload-batch 25"
   },
   "engines": {
     "node": ">=20.0.0"

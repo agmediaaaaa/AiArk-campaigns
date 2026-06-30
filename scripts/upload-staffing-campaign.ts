@@ -17,6 +17,15 @@ import {
   type PlusVibeLeadPayload
 } from "../integrations/plusvibe.js";
 import { upsertLeads, type SupabaseLeadRow } from "../integrations/supabase.js";
+import {
+  findEnriched,
+  findRemoved,
+  loadPriorCaches,
+  lookupKeys,
+  type EnrichedCacheEntry,
+  type PriorCaches
+} from "./staffing-cache.js";
+import { fetchCampaignLeads } from "../integrations/plusvibe.js";
 
 type LeadRow = Record<string, string>;
 type StaffingConfig = {
@@ -150,6 +159,141 @@ async function resolveMx(
   return classifyMx(domain);
 }
 
+function buildPayloadAndUploaded(args: {
+  raw: LeadRow;
+  firstName: string;
+  lastName: string;
+  companyName: string;
+  activeEmail: string;
+  emailSource: "csv" | "trykit";
+  clientType: string;
+  talentType: string;
+  emailBody: string;
+  routeSetting: string;
+  campaignId: string;
+  workspaceId: string;
+  dryRun: boolean;
+}): { uploaded: UploadedLead; payload: PlusVibeLeadPayload } {
+  const {
+    raw,
+    firstName,
+    lastName,
+    companyName,
+    activeEmail,
+    emailSource,
+    clientType,
+    talentType,
+    emailBody,
+    routeSetting,
+    campaignId,
+    workspaceId,
+    dryRun
+  } = args;
+
+  const payload: PlusVibeLeadPayload = {
+    email: activeEmail,
+    first_name: firstName || undefined,
+    last_name: lastName || undefined,
+    company_name: companyName || undefined,
+    company_website: cleanText(raw.company_website) || undefined,
+    linkedin_person_url: cleanText(raw.linkedin) || undefined,
+    linkedin_company_url: cleanText(raw.company_linkedin) || undefined,
+    city: cleanText(raw.city) || undefined,
+    country: cleanText(raw.country) || undefined,
+    custom_variables: {
+      custom_state: cleanText(raw.state) || "",
+      custom_title: cleanText(raw.title) || "",
+      custom_client_type: clientType || "",
+      custom_talent_type: talentType || "",
+      custom_email_body: emailBody,
+      custom_cold_email: emailBody
+    }
+  };
+
+  const uploaded: UploadedLead = {
+    first_name: firstName,
+    last_name: lastName,
+    email: activeEmail,
+    company_name: companyName,
+    client_type: clientType,
+    talent_type: talentType,
+    city: cleanText(raw.city),
+    state: cleanText(raw.state),
+    linkedin: cleanText(raw.linkedin),
+    company_website: cleanText(raw.company_website),
+    email_body: emailBody,
+    domain_settings: routeSetting,
+    email_source: emailSource,
+    plusvibe_workspace_id: workspaceId,
+    plusvibe_campaign_id: campaignId,
+    upload_ok: dryRun ? "dry_run" : "pending",
+    upload_error: ""
+  };
+
+  return { uploaded, payload };
+}
+
+async function processCachedRow(
+  raw: LeadRow,
+  cached: EnrichedCacheEntry,
+  config: StaffingConfig,
+  workspaceId: string,
+  rowIndex: number,
+  dryRun: boolean,
+  openaiScripts: boolean
+): Promise<{ kind: "uploaded"; uploaded: UploadedLead; payload: PlusVibeLeadPayload }> {
+  const firstName = salutationFirstName(raw) || cached.first_name;
+  const lastName = cleanText(raw.last_name) || cached.last_name;
+  const companyName = cleanText(raw.company_name) || cached.company_name;
+  const activeEmail = cached.email;
+  const emailSource = (cached.email_source === "trykit" ? "trykit" : "csv") as "csv" | "trykit";
+  const clientType = cached.client_type;
+  const talentType = cached.talent_type;
+
+  const route = routeCampaign(raw.domain_settings || cached.domain_settings, config.campaigns, {
+    treatEmptyAsSmtp: emailSource === "trykit" || cleanText(raw.domain_settings) === ""
+  });
+  if (!route.ok) {
+    throw new Error(`cached row route failed: ${route.rawValue}`);
+  }
+
+  const scriptInput = {
+    firstName,
+    title: raw.title,
+    companyName,
+    companyDescription: raw.company_description,
+    companyProductsServices: productsField(raw),
+    companyIndustry: raw.company_industry,
+    city: raw.city || cached.city,
+    state: raw.state || cached.state,
+    talentType,
+    rowIndex
+  };
+  const personalized = openaiScripts
+    ? await personalizeStaffingEmail(scriptInput)
+    : personalizeStaffingEmailLocal(scriptInput);
+  const emailBody = personalized.body;
+
+  return {
+    kind: "uploaded",
+    ...buildPayloadAndUploaded({
+      raw,
+      firstName,
+      lastName,
+      companyName,
+      activeEmail,
+      emailSource,
+      clientType,
+      talentType,
+      emailBody,
+      routeSetting: route.setting,
+      campaignId: route.target.campaignId,
+      workspaceId,
+      dryRun
+    })
+  };
+}
+
 async function processRow(
   raw: LeadRow,
   config: StaffingConfig,
@@ -158,7 +302,11 @@ async function processRow(
   dryRun: boolean,
   openaiScripts: boolean,
   skipEnrich: boolean,
-  trykittCache: Map<number, FindEmailResult>
+  trykittCache: Map<number, FindEmailResult>,
+  opts: {
+    priorCaches?: PriorCaches;
+    plusvibeEmails?: Set<string>;
+  } = {}
 ): Promise<{ kind: "removed"; removed: RemovedLead } | { kind: "uploaded"; uploaded: UploadedLead; payload: PlusVibeLeadPayload }> {
   const firstName = salutationFirstName(raw);
   const lastName = cleanText(raw.last_name);
@@ -168,6 +316,37 @@ async function processRow(
     kind: "removed" as const,
     removed: { first_name: firstName, last_name: lastName, company_name: companyName, email, reason, detail }
   });
+
+  const lookup = {
+    email: cleanText(raw.email_business),
+    linkedin: cleanText(raw.linkedin),
+    firstName,
+    lastName,
+    companyName
+  };
+
+  if (opts.plusvibeEmails) {
+    for (const key of lookupKeys(lookup)) {
+      if (key.startsWith("email:") && opts.plusvibeEmails.has(key.slice(6))) {
+        return drop("already_in_plusvibe", key.slice(6));
+      }
+    }
+  }
+
+  if (opts.priorCaches) {
+    const priorRemoved = findRemoved(opts.priorCaches, lookup);
+    if (priorRemoved) {
+      return drop(priorRemoved.reason, priorRemoved.email, priorRemoved.detail);
+    }
+
+    const cached = findEnriched(opts.priorCaches, lookup);
+    if (cached) {
+      if (opts.plusvibeEmails?.has(cached.email)) {
+        return drop("already_in_plusvibe", cached.email);
+      }
+      return processCachedRow(raw, cached, config, workspaceId, rowIndex, dryRun, openaiScripts);
+    }
+  }
 
   const emailBusiness = cleanText(raw.email_business);
   let activeEmail = "";
@@ -181,6 +360,10 @@ async function processRow(
     if (!verified.accepted) return drop("email_unverified", found.email, verified.status);
     activeEmail = found.email.toLowerCase();
     emailSource = "trykit";
+  }
+
+  if (opts.plusvibeEmails?.has(activeEmail)) {
+    return drop("already_in_plusvibe", activeEmail);
   }
 
   const mx = await resolveMx(raw, activeEmail);
@@ -231,47 +414,24 @@ async function processRow(
 
   if (!emailBody) return drop("missing_email_body", activeEmail);
 
-  const payload: PlusVibeLeadPayload = {
-    email: activeEmail,
-    first_name: firstName || undefined,
-    last_name: lastName || undefined,
-    company_name: companyName || undefined,
-    company_website: cleanText(raw.company_website) || undefined,
-    linkedin_person_url: cleanText(raw.linkedin) || undefined,
-    linkedin_company_url: cleanText(raw.company_linkedin) || undefined,
-    city: cleanText(raw.city) || undefined,
-    country: cleanText(raw.country) || undefined,
-    custom_variables: {
-      custom_state: cleanText(raw.state) || "",
-      custom_title: cleanText(raw.title) || "",
-      custom_client_type: clientType || "",
-      custom_talent_type: talentType || "",
-      custom_email_body: emailBody,
-      custom_cold_email: emailBody
-    }
+  return {
+    kind: "uploaded",
+    ...buildPayloadAndUploaded({
+      raw,
+      firstName,
+      lastName,
+      companyName,
+      activeEmail,
+      emailSource,
+      clientType,
+      talentType,
+      emailBody,
+      routeSetting: route.setting,
+      campaignId: route.target.campaignId,
+      workspaceId,
+      dryRun
+    })
   };
-
-  const uploaded: UploadedLead = {
-    first_name: firstName,
-    last_name: lastName,
-    email: activeEmail,
-    company_name: companyName,
-    client_type: clientType,
-    talent_type: talentType,
-    city: cleanText(raw.city),
-    state: cleanText(raw.state),
-    linkedin: cleanText(raw.linkedin),
-    company_website: cleanText(raw.company_website),
-    email_body: emailBody,
-    domain_settings: route.setting,
-    email_source: emailSource,
-    plusvibe_workspace_id: workspaceId,
-    plusvibe_campaign_id: route.target.campaignId,
-    upload_ok: dryRun ? "dry_run" : "pending",
-    upload_error: ""
-  };
-
-  return { kind: "uploaded", uploaded, payload };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -306,6 +466,11 @@ async function run(): Promise<void> {
   const limit = limitRaw ? Math.max(1, Number(limitRaw)) : 0;
   const concurrency = Math.max(1, Number(argValue("--concurrency") ?? process.env.ROW_CONCURRENCY ?? "8"));
   const uploadBatchSize = Math.max(1, Number(argValue("--upload-batch") ?? "25"));
+  const priorRunsArg = argValue("--prior-runs");
+  const priorRunDirs = priorRunsArg
+    ? priorRunsArg.split(",").map((d) => path.resolve(d.trim())).filter(Boolean)
+    : [];
+  const excludePlusvibe = hasFlag("--exclude-plusvibe");
 
   if (!process.env.SUPABASE_TABLE) process.env.SUPABASE_TABLE = "Lead Database";
 
@@ -339,10 +504,26 @@ async function run(): Promise<void> {
   config.campaigns.smtp.workspaceId = workspaceId;
   config.campaigns.catchAll.workspaceId = workspaceId;
 
+  const priorCaches = priorRunDirs.length > 0 ? loadPriorCaches(priorRunDirs) : undefined;
+  let plusvibeEmails: Set<string> | undefined;
+  if (excludePlusvibe) {
+    console.log(`[staffing] fetching PlusVibe campaign leads for exclusion`);
+    const existing = await fetchCampaignLeads({ workspaceId, campaignId });
+    plusvibeEmails = new Set(
+      existing.map((l) => l.email?.trim().toLowerCase()).filter(Boolean) as string[]
+    );
+    console.log(`[staffing] excluding ${plusvibeEmails.size} emails already in campaign`);
+  }
+
   fs.mkdirSync(outDir, { recursive: true });
 
   console.log(`[staffing] batch ${start}..${start + leads.length} of ${leadsAll.length} total (${leads.length} rows in batch)`);
   console.log(`[staffing] workspace=${workspaceId} campaign=${campaignId}`);
+  if (priorCaches) {
+    console.log(
+      `[staffing] prior cache enriched=${priorCaches.enrichedCount} removed=${priorCaches.removedCount} from ${priorRunDirs.length} runs`
+    );
+  }
   console.log(
     `[staffing] dryRun=${dryRun} skipUpload=${skipUpload} skipSupabase=${skipSupabase} skipEnrich=${skipEnrich} openaiScripts=${openaiScripts} concurrency=${concurrency}`
   );
@@ -351,10 +532,27 @@ async function run(): Promise<void> {
   const removed: RemovedLead[] = [];
   const uploadQueue: PlusVibeLeadPayload[] = [];
   const trykittCache = new Map<number, FindEmailResult>();
+  let rewriteCount = 0;
+  let pipelineCount = 0;
+
+  const needsTrykitt = (raw: LeadRow, index: number): boolean => {
+    if (cleanText(raw.email_business)) return false;
+    if (!priorCaches) return true;
+    const lookup = {
+      email: "",
+      linkedin: cleanText(raw.linkedin),
+      firstName: salutationFirstName(raw),
+      lastName: cleanText(raw.last_name),
+      companyName: cleanText(raw.company_name)
+    };
+    if (findRemoved(priorCaches, lookup)) return false;
+    if (findEnriched(priorCaches, lookup)) return false;
+    return true;
+  };
 
   const trykittItems = leads
     .map((raw, i) => ({ raw, i }))
-    .filter(({ raw }) => !cleanText(raw.email_business))
+    .filter(({ raw, i }) => needsTrykitt(raw, start + i))
     .map(({ raw, i }) => ({
       key: start + i,
       firstName: salutationFirstName(raw),
@@ -375,6 +573,14 @@ async function run(): Promise<void> {
 
   let completed = 0;
   const outcomes = await mapPool(leads, concurrency, async (raw, i) => {
+    const lookup = {
+      email: cleanText(raw.email_business),
+      linkedin: cleanText(raw.linkedin),
+      firstName: salutationFirstName(raw),
+      lastName: cleanText(raw.last_name),
+      companyName: cleanText(raw.company_name)
+    };
+    const isRewrite = priorCaches ? !!findEnriched(priorCaches, lookup) : false;
     const outcome = await processRow(
       raw,
       config,
@@ -383,8 +589,13 @@ async function run(): Promise<void> {
       dryRun,
       openaiScripts,
       skipEnrich,
-      trykittCache
+      trykittCache,
+      { priorCaches, plusvibeEmails }
     );
+    if (outcome.kind === "uploaded") {
+      if (isRewrite) rewriteCount++;
+      else pipelineCount++;
+    }
     completed++;
     if (completed % 25 === 0 || completed === leads.length) {
       console.log(`[staffing] processed ${completed}/${leads.length}`);
@@ -466,6 +677,10 @@ async function run(): Promise<void> {
         removed: removed.length,
         plusvibe_ok: uploadOk,
         plusvibe_failed: uploadFailed,
+        rewrite_from_cache: rewriteCount,
+        full_pipeline: pipelineCount,
+        prior_runs: priorRunDirs,
+        plusvibe_excluded: plusvibeEmails?.size ?? 0,
         supabase_succeeded: supabaseSucceeded,
         supabase_failed: supabaseFailed,
         supabase_errors: supabaseErrors,
