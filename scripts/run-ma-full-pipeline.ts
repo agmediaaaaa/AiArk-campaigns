@@ -18,6 +18,8 @@ import {
   uploadLeadsBatch,
   type PlusVibeLeadPayload
 } from "../integrations/plusvibe.js";
+import { upsertLeads } from "../integrations/supabase.js";
+import { toSupabaseLeadRow } from "../functions/processMaLeadRow.js";
 
 type MaConfig = {
   product: { description: string };
@@ -110,6 +112,7 @@ async function run(): Promise<void> {
   const uploadBatchSize = Math.max(1, Number(argValue("--upload-batch") ?? "10"));
   const uploadConcurrency = Math.max(1, Number(argValue("--upload-concurrency") ?? "4"));
   const skipUpload = hasFlag("--skip-upload");
+  const skipSupabase = hasFlag("--skip-supabase");
 
   const googleCampaign =
     argValue("--google-campaign") ??
@@ -273,6 +276,23 @@ async function run(): Promise<void> {
     fs.writeFileSync(path.join(outDir, "upload_errors.csv"), stringify(uploadErrors, { header: true }));
   }
 
+  let supabaseReport = { attempted: 0, succeeded: 0, failed: 0, errors: [] as Array<{ chunk: number; message: string }> };
+  if (!skipSupabase && process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+    const supabaseRows = enrichedResults.map((e) => toSupabaseLeadRow({
+      lead: e.lead,
+      email_source: e.email_source,
+      email_verification_status: e.email_verification_status,
+      mx_data: e.mx_data
+    }));
+    console.log(`[ma-full] supabase upsert: ${supabaseRows.length} rows → Lead Database`);
+    supabaseReport = await upsertLeads(supabaseRows);
+    console.log(
+      `[ma-full] supabase done: succeeded=${supabaseReport.succeeded} failed=${supabaseReport.failed}`
+    );
+  } else if (!skipSupabase) {
+    console.warn("[ma-full] SUPABASE_URL/SUPABASE_KEY missing — skipping stage 6");
+  }
+
   const summary = {
     input_rows: batch.length,
     enriched: enrichedResults.length,
@@ -289,6 +309,7 @@ async function run(): Promise<void> {
     },
     drops_by_reason: dropsByReason,
     upload: skipUpload ? "skipped" : uploadReport,
+    supabase: skipSupabase ? "skipped" : supabaseReport,
     workspace_id: workspaceId || null,
     elapsed_seconds: ((Date.now() - t0) / 1000).toFixed(1),
     out_dir: outDir

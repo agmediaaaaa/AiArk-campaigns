@@ -48,7 +48,20 @@ export type ProcessMaLeadOptions = {
   productDescription: string;
   trykittCache?: Map<number, FindEmailResult>;
   rowIndex?: number;
+  skipEnrichment?: boolean;
+  skipTryKitt?: boolean;
 };
+
+export type MaGatedLead = {
+  lead: PreparedMaLead;
+  email_source: "csv" | "trykit";
+  email_verification_status: string | null;
+  mx_data: string;
+};
+
+export type MaGateOutcome =
+  | { ok: true; gated: MaGatedLead }
+  | { ok: false; removed: MaRemovedLead };
 
 function toPreparedLead(
   r: MaSheetRow,
@@ -86,7 +99,7 @@ function removed(
   r: MaSheetRow,
   email: string,
   detail?: string
-): MaRowOutcome {
+): MaGateOutcome {
   return {
     ok: false,
     removed: {
@@ -108,10 +121,10 @@ export function leadNeedsTryKitt(row: MaSheetRow): boolean {
   return setting === "SMTP" || setting === "";
 }
 
-export async function processMaLeadRow(
+export async function gateMaLeadForPipeline(
   rawRow: MaSheetRow,
-  opts: ProcessMaLeadOptions
-): Promise<MaRowOutcome> {
+  opts: Pick<ProcessMaLeadOptions, "trykittCache" | "rowIndex" | "skipTryKitt"> = {}
+): Promise<MaGateOutcome> {
   const r = normalizeSheetRow(rawRow);
   const csvEmail = cleanText(r.email_business).toLowerCase();
   const domainSettingRaw = cleanText(r.domain_settings);
@@ -143,6 +156,8 @@ export async function processMaLeadRow(
   if (csvEmail) {
     activeEmail = csvEmail;
     emailSource = "csv";
+  } else if (opts.skipTryKitt) {
+    return removed("no_email_found", r, "", "skipTryKitt: no Email Business");
   } else {
     if (domainSetting === "CatchAll") {
       return removed("no_email", r, "", "CatchAll row without Email Business");
@@ -185,6 +200,39 @@ export async function processMaLeadRow(
   }
 
   const lead = toPreparedLead(r, activeEmail, domainSetting, esp, mxData);
+  return {
+    ok: true,
+    gated: {
+      lead,
+      email_source: emailSource,
+      email_verification_status: verificationStatus,
+      mx_data: mxData
+    }
+  };
+}
+
+export async function processMaLeadRow(
+  rawRow: MaSheetRow,
+  opts: ProcessMaLeadOptions
+): Promise<MaRowOutcome> {
+  const gate = await gateMaLeadForPipeline(rawRow, opts);
+  if (!gate.ok) return gate;
+
+  if (opts.skipEnrichment) {
+    return {
+      ok: false,
+      removed: {
+        reason: "no_email",
+        email: gate.gated.lead.email_business,
+        first_name: gate.gated.lead.first_name,
+        last_name: gate.gated.lead.last_name,
+        company_name: gate.gated.lead.company_name,
+        detail: "skipEnrichment without enriched payload"
+      }
+    };
+  }
+
+  const { lead } = gate.gated;
   const enriched = await enrichMaOutreachSequential(
     {
       first_name: lead.first_name,
@@ -210,9 +258,21 @@ export async function processMaLeadRow(
     result: {
       lead,
       enriched,
-      email_source: emailSource,
-      email_verification_status: verificationStatus,
-      mx_data: mxData
+      email_source: gate.gated.email_source,
+      email_verification_status: gate.gated.email_verification_status,
+      mx_data: gate.gated.mx_data
     }
+  };
+}
+
+export function toSupabaseLeadRow(gated: MaGatedLead): import("../integrations/supabase.js").SupabaseLeadRow {
+  const lead = gated.lead;
+  return {
+    Email: lead.email_business,
+    "First Name": lead.first_name || null,
+    "Last Name": lead.last_name || null,
+    Linkedin: lead.linkedin || null,
+    "Company Name": lead.company_name_normalized || lead.company_name || null,
+    Website: lead.company_website || null
   };
 }

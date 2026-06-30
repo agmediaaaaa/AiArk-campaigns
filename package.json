@@ -15,7 +15,8 @@
     "enrich-ma-shards": "tsx scripts/run-ma-shards.ts",
     "ma-pipeline": "tsx scripts/run-ma-pipeline.ts",
     "ma-test": "tsx scripts/run-ma-test-pipeline.ts",
-    "ma-full": "tsx scripts/run-ma-full-pipeline.ts"
+    "ma-full": "tsx scripts/run-ma-full-pipeline.ts",
+    "ma-supabase-backfill": "tsx scripts/backfill-ma-supabase.ts"
   },
   "engines": {
     "node": ">=20.0.0"
