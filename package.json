@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "staffing-upload": "tsx scripts/upload-staffing-campaign.ts",
-    "staffing-prepare": "tsx scripts/prepare-staffing-sheet.ts"
+    "staffing-prepare": "tsx scripts/prepare-staffing-sheet.ts",
+    "staffing-supabase-backfill": "tsx scripts/backfill-staffing-supabase.ts"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -16,6 +16,7 @@ import {
   uploadLeadsBatch,
   type PlusVibeLeadPayload
 } from "../integrations/plusvibe.js";
+import { upsertLeads, type SupabaseLeadRow } from "../integrations/supabase.js";
 
 type LeadRow = Record<string, string>;
 type StaffingConfig = {
@@ -277,6 +278,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function toSupabaseRow(row: UploadedLead): SupabaseLeadRow {
+  return {
+    Email: row.email,
+    "First Name": row.first_name || null,
+    "Last Name": row.last_name || null,
+    Linkedin: row.linkedin || null,
+    "Company Name": row.company_name || null,
+    Website: row.company_website || null
+  };
+}
+
 async function run(): Promise<void> {
   const input = argValue("--input") ?? "data/staffing_leads_full.csv";
   const configPath = argValue("--config") ?? "configs/staffing_zs.json";
@@ -286,6 +298,7 @@ async function run(): Promise<void> {
     argValue("--campaign") ?? process.env.STAFFING_CAMPAIGN_ID ?? "6a414d310cd53ac8421e1e91";
   const dryRun = hasFlag("--dry-run");
   const skipUpload = hasFlag("--skip-upload") || dryRun;
+  const skipSupabase = hasFlag("--skip-supabase");
   const skipEnrich = hasFlag("--skip-enrich");
   const openaiScripts = hasFlag("--openai-scripts");
   const start = Math.max(0, Number(argValue("--start") ?? "0"));
@@ -293,6 +306,8 @@ async function run(): Promise<void> {
   const limit = limitRaw ? Math.max(1, Number(limitRaw)) : 0;
   const concurrency = Math.max(1, Number(argValue("--concurrency") ?? process.env.ROW_CONCURRENCY ?? "8"));
   const uploadBatchSize = Math.max(1, Number(argValue("--upload-batch") ?? "25"));
+
+  if (!process.env.SUPABASE_TABLE) process.env.SUPABASE_TABLE = "Lead Database";
 
   if (!skipUpload && !dryRun) {
     const missing = ["PLUSVIBE_KEY", "OPENAI_API_KEY", "TRYKITT_API_KEY", "MILLIONVERIFIER_API_KEY"].filter(
@@ -302,6 +317,10 @@ async function run(): Promise<void> {
     if (!skipEnrich && missing.includes("OPENAI_API_KEY")) {
       throw new Error("OPENAI_API_KEY required for enrichment");
     }
+  }
+  if (!skipSupabase && !dryRun) {
+    const missing = ["SUPABASE_URL", "SUPABASE_KEY"].filter((k) => !process.env[k]);
+    if (missing.length) throw new Error(`Missing env vars for Supabase: ${missing.join(", ")}`);
   }
 
   const config = readConfig(configPath);
@@ -325,7 +344,7 @@ async function run(): Promise<void> {
   console.log(`[staffing] batch ${start}..${start + leads.length} of ${leadsAll.length} total (${leads.length} rows in batch)`);
   console.log(`[staffing] workspace=${workspaceId} campaign=${campaignId}`);
   console.log(
-    `[staffing] dryRun=${dryRun} skipUpload=${skipUpload} skipEnrich=${skipEnrich} openaiScripts=${openaiScripts} concurrency=${concurrency}`
+    `[staffing] dryRun=${dryRun} skipUpload=${skipUpload} skipSupabase=${skipSupabase} skipEnrich=${skipEnrich} openaiScripts=${openaiScripts} concurrency=${concurrency}`
   );
 
   const uploaded: UploadedLead[] = [];
@@ -413,6 +432,21 @@ async function run(): Promise<void> {
     }
   }
 
+  let supabaseSucceeded = 0;
+  let supabaseFailed = 0;
+  const supabaseErrors: Array<{ chunk: number; message: string }> = [];
+  if (!skipSupabase && !dryRun) {
+    const supabaseRows = uploaded
+      .filter((row) => row.upload_ok === "true")
+      .map(toSupabaseRow);
+    console.log(`[staffing] supabase upsert ${supabaseRows.length} rows -> ${process.env.SUPABASE_TABLE}`);
+    const supReport = await upsertLeads(supabaseRows);
+    supabaseSucceeded = supReport.succeeded;
+    supabaseFailed = supReport.failed;
+    supabaseErrors.push(...supReport.errors);
+    console.log(`[staffing] supabase ok=${supabaseSucceeded} failed=${supabaseFailed}`);
+  }
+
   fs.writeFileSync(path.join(outDir, "uploaded_leads.csv"), stringify(uploaded, { header: true }));
   fs.writeFileSync(path.join(outDir, "removed_leads.csv"), stringify(removed, { header: true }));
   fs.writeFileSync(path.join(outDir, "upload_errors.csv"), stringify(uploadErrors, { header: true }));
@@ -432,6 +466,9 @@ async function run(): Promise<void> {
         removed: removed.length,
         plusvibe_ok: uploadOk,
         plusvibe_failed: uploadFailed,
+        supabase_succeeded: supabaseSucceeded,
+        supabase_failed: supabaseFailed,
+        supabase_errors: supabaseErrors,
         removed_by_reason: removed.reduce<Record<string, number>>((acc, r) => {
           acc[r.reason] = (acc[r.reason] ?? 0) + 1;
           return acc;
@@ -443,7 +480,7 @@ async function run(): Promise<void> {
   );
 
   console.log(
-    `[staffing] done uploaded=${uploaded.length} removed=${removed.length} plusvibe_ok=${uploadOk} plusvibe_failed=${uploadFailed}`
+    `[staffing] done uploaded=${uploaded.length} removed=${removed.length} plusvibe_ok=${uploadOk} plusvibe_failed=${uploadFailed} supabase_ok=${supabaseSucceeded} supabase_failed=${supabaseFailed}`
   );
   console.log(`[staffing] artifacts in ${outDir}`);
 }
