@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { cleanText, domainFromWebsite } from "../functions/classifyMx.js";
 import { withRetry } from "./openai.js";
 
 let client: SupabaseClient | null = null;
@@ -26,7 +27,97 @@ export type SupabaseLeadRow = {
   Linkedin?: string | null;
   "Company Name"?: string | null;
   Website?: string | null;
+  Title?: string | null;
+  "Facility Type"?: string | null;
+  "Talent Type"?: string | null;
+  "Cold Email"?: string | null;
+  "Company LinkedIn"?: string | null;
+  City?: string | null;
+  State?: string | null;
+  Country?: string | null;
 };
+
+export type SupabaseLookupInput = {
+  firstName?: string;
+  lastName?: string;
+  companyName?: string;
+  companyWebsite?: string;
+  linkedin?: string;
+};
+
+function normalizeLinkedin(url: string): string {
+  return url
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/$/, "");
+}
+
+/** Look up a verified email from Supabase before calling TryKitt. */
+export async function lookupLeadEmail(input: SupabaseLookupInput): Promise<string | null> {
+  const firstName = cleanText(input.firstName);
+  const lastName = cleanText(input.lastName);
+  const companyName = cleanText(input.companyName);
+  const linkedin = cleanText(input.linkedin);
+  const websiteDomain = domainFromWebsite(input.companyWebsite);
+
+  if (!linkedin && !(firstName && lastName)) return null;
+
+  try {
+    const supabase = getSupabase();
+
+    if (linkedin) {
+      const norm = normalizeLinkedin(linkedin);
+      const { data, error } = await supabase
+        .from(SUPABASE_TABLE)
+        .select("Email, Linkedin")
+        .ilike("Linkedin", `%${norm.split("/").pop() ?? norm}%`)
+        .limit(5);
+      if (!error && data?.length) {
+        const hit = data.find((row) => {
+          const rowLi = cleanText((row as { Linkedin?: string }).Linkedin);
+          return rowLi && normalizeLinkedin(rowLi) === norm;
+        });
+        const email = cleanText((hit ?? data[0])?.Email);
+        if (email.includes("@")) return email.toLowerCase();
+      }
+    }
+
+    if (firstName && lastName) {
+      const { data, error } = await supabase
+        .from(SUPABASE_TABLE)
+        .select("Email, Website")
+        .ilike("First Name", firstName)
+        .ilike("Last Name", lastName)
+        .limit(10);
+
+      if (!error && data?.length) {
+        let candidates = data as Array<{ Email?: string; Website?: string }>;
+        if (companyName) {
+          const { data: companyRows } = await supabase
+            .from(SUPABASE_TABLE)
+            .select("Email, Website")
+            .ilike("First Name", firstName)
+            .ilike("Last Name", lastName)
+            .ilike("Company Name", `%${companyName.slice(0, 40)}%`)
+            .limit(10);
+          if (companyRows?.length) candidates = companyRows as typeof candidates;
+        }
+
+        const domainHit = websiteDomain
+          ? candidates.find((row) => domainFromWebsite(row.Website) === websiteDomain)
+          : undefined;
+        const email = cleanText((domainHit ?? candidates[0])?.Email);
+        if (email.includes("@")) return email.toLowerCase();
+      }
+    }
+  } catch (err) {
+    console.warn(`[supabase.lookupLeadEmail] ${(err as Error).message}`);
+  }
+
+  return null;
+}
 
 export type UpsertReport = {
   attempted: number;

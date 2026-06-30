@@ -11,15 +11,18 @@
   "campaigns": {
     "smtp": {
       "workspaceId": "68cc548e33b6c342f85bd2d9",
-      "campaignId": "69f327d013e294cc4fd4a9da"
+      "campaignId": "6a43979125d6cb35b67ad062"
     },
     "catchAll": {
       "workspaceId": "68cc548e33b6c342f85bd2d9",
-      "campaignId": "69f327d013e294cc4fd4a9da"
+      "campaignId": "6a43979125d6cb35b67ad062"
     }
   },
+  "filters": {
+    "espAllowlist": ["google", "others"]
+  },
   "limits": {
-    "openaiConcurrency": 5,
+    "openaiConcurrency": 8,
     "uploadConcurrency": 3
   }
 }
