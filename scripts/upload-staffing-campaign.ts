@@ -471,6 +471,7 @@ async function run(): Promise<void> {
     ? priorRunsArg.split(",").map((d) => path.resolve(d.trim())).filter(Boolean)
     : [];
   const excludePlusvibe = hasFlag("--exclude-plusvibe");
+  const plusvibeEmailsCsv = argValue("--plusvibe-emails-csv");
 
   if (!process.env.SUPABASE_TABLE) process.env.SUPABASE_TABLE = "Lead Database";
 
@@ -507,12 +508,25 @@ async function run(): Promise<void> {
   const priorCaches = priorRunDirs.length > 0 ? loadPriorCaches(priorRunDirs) : undefined;
   let plusvibeEmails: Set<string> | undefined;
   if (excludePlusvibe) {
-    console.log(`[staffing] fetching PlusVibe campaign leads for exclusion`);
-    const existing = await fetchCampaignLeads({ workspaceId, campaignId });
-    plusvibeEmails = new Set(
-      existing.map((l) => l.email?.trim().toLowerCase()).filter(Boolean) as string[]
-    );
-    console.log(`[staffing] excluding ${plusvibeEmails.size} emails already in campaign`);
+    if (plusvibeEmailsCsv && fs.existsSync(path.resolve(plusvibeEmailsCsv))) {
+      const rows = parse(fs.readFileSync(path.resolve(plusvibeEmailsCsv), "utf-8"), {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+        bom: true
+      }) as Array<{ email?: string }>;
+      plusvibeEmails = new Set(
+        rows.map((r) => r.email?.trim().toLowerCase()).filter(Boolean) as string[]
+      );
+      console.log(`[staffing] excluding ${plusvibeEmails.size} emails from ${plusvibeEmailsCsv}`);
+    } else {
+      console.log(`[staffing] fetching PlusVibe campaign leads for exclusion`);
+      const existing = await fetchCampaignLeads({ workspaceId, campaignId }, { delayMs: 400 });
+      plusvibeEmails = new Set(
+        existing.map((l) => l.email?.trim().toLowerCase()).filter(Boolean) as string[]
+      );
+      console.log(`[staffing] excluding ${plusvibeEmails.size} emails already in campaign`);
+    }
   }
 
   fs.mkdirSync(outDir, { recursive: true });
