@@ -10,9 +10,7 @@ const REQUIRED_KEYS = [
   "OPENAI_API_KEY",
   "TRYKITT_API_KEY",
   "MILLIONVERIFIER_API_KEY",
-  "PLUSVIBE_KEY",
-  "SUPABASE_URL",
-  "SUPABASE_KEY"
+  "PLUSVIBE_KEY"
 ] as const;
 
 const EnvSchema = z.object({
@@ -20,8 +18,8 @@ const EnvSchema = z.object({
   TRYKITT_API_KEY: z.string().min(1, "TRYKITT_API_KEY is required"),
   MILLIONVERIFIER_API_KEY: z.string().min(1, "MILLIONVERIFIER_API_KEY is required"),
   PLUSVIBE_KEY: z.string().min(1, "PLUSVIBE_KEY is required"),
-  SUPABASE_URL: z.string().url("SUPABASE_URL must be a URL"),
-  SUPABASE_KEY: z.string().min(1, "SUPABASE_KEY is required")
+  SUPABASE_URL: z.string().url("SUPABASE_URL must be a URL").optional(),
+  SUPABASE_KEY: z.string().min(1, "SUPABASE_KEY is required").optional()
 });
 
 type CliArgs = {
@@ -109,6 +107,15 @@ function printHelp(): void {
 }
 
 function startupGate(args: CliArgs): void {
+  if (!process.env.SUPABASE_URL?.trim() || !process.env.SUPABASE_KEY?.trim()) {
+    console.warn(
+      "[lead-engine] SUPABASE_URL/SUPABASE_KEY not set; Supabase lookup and upsert will be skipped."
+    );
+    process.env.SKIP_SUPABASE = "true";
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_KEY;
+  }
+
   const parsed = EnvSchema.safeParse(process.env);
   if (!parsed.success) {
     const messages = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`);

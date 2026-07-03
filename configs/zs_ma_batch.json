@@ -1,0 +1,25 @@
+{
+  "vertical": "zs_ma_outreach",
+  "company": {
+    "name": "AI Ark",
+    "description": "AI Ark runs outbound programs for B2B SaaS and professional services companies."
+  },
+  "product": {
+    "name": "AI Ark Outreach",
+    "description": "Lead enrichment, email discovery, and campaign delivery for targeted outbound."
+  },
+  "campaigns": {
+    "smtp": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a47850365fa564829fbcb53"
+    },
+    "catchAll": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a47850365fa564829fbcb53"
+    }
+  },
+  "limits": {
+    "openaiConcurrency": 5,
+    "uploadConcurrency": 3
+  }
+}
