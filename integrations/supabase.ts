@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { withRetry } from "./openai.js";
-import { cleanText } from "../functions/classifyMx.js";
+import { cleanText, domainFromWebsite } from "../functions/classifyMx.js";
 
 let client: SupabaseClient | null = null;
 
@@ -138,6 +138,35 @@ export async function lookupEmailsFromDatabase(
   }
 
   return out;
+}
+
+export type SingleLookupInput = {
+  firstName?: string;
+  lastName?: string;
+  companyName?: string;
+  linkedin?: string;
+  companyWebsite?: string;
+};
+
+/** Single-lead lookup before TryKitt (LinkedIn first, then name+company). */
+export async function lookupLeadEmail(input: SingleLookupInput): Promise<string | null> {
+  const firstName = cleanText(input.firstName);
+  const lastName = cleanText(input.lastName);
+  const companyName = cleanText(input.companyName);
+  const linkedin = cleanText(input.linkedin);
+  if (!linkedin && !(firstName && lastName)) return null;
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) return null;
+
+  const hits = await lookupEmailsFromDatabase([
+    {
+      key: 0,
+      linkedin,
+      firstName,
+      lastName,
+      companyName
+    }
+  ]);
+  return hits.get(0) ?? null;
 }
 
 export async function upsertLeads(
