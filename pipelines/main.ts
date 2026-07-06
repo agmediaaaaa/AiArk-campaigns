@@ -14,11 +14,16 @@ import {
 import { normalizeCompany } from "../functions/normalizeCompany.js";
 import { classifyCompanyType } from "../functions/classifyCompanyType.js";
 import { enrichFacilityAndTalent } from "../functions/enrichFacilityAndTalent.js";
-import { findEmail, findEmailsBatch, type FindEmailResult } from "../functions/findEmail.js";
+import { findEmail, findEmailsBatch, type BatchFindEmailItem } from "../functions/findEmail.js";
 import { verifyEmail } from "../functions/verifyEmail.js";
 import { routeCampaign, type CampaignsConfig } from "../functions/routeCampaign.js";
 import { uploadLead, type PlusVibeLeadPayload } from "../integrations/plusvibe.js";
-import { upsertLeads, type SupabaseLeadRow } from "../integrations/supabase.js";
+import {
+  lookupEmailsFromDatabase,
+  upsertLeads,
+  type SupabaseLeadRow,
+  type SupabaseLookupItem
+} from "../integrations/supabase.js";
 import { mapPool } from "../functions/mapPool.js";
 
 export type FinanceConfig = {
@@ -51,7 +56,8 @@ type RemovedLead = {
     | "no_email_found"
     | "email_unverified"
     | "unknown_domain_setting"
-    | "catchall_skipped";
+    | "catchall_skipped"
+    | "outlook_skipped";
   email: string;
   domain: string;
   raw: LeadRow;
@@ -61,7 +67,7 @@ type RemovedLead = {
 type EnrichedLead = {
   raw: LeadRow;
   active_email: string;
-  email_source: "csv" | "trykit";
+  email_source: "csv" | "trykitt" | "supabase";
   email_verification_status: string | null;
   esp_classification: string;
   domain_settings: string;
@@ -89,6 +95,12 @@ type StageCounts = {
   supabase_succeeded: number;
   supabase_failed: number;
   drops_by_reason: Record<string, number>;
+};
+
+type EmailCacheResult = {
+  email: string | null;
+  source: "supabase" | "trykitt";
+  domainUsed?: string;
 };
 
 type RowOutcome =
@@ -131,10 +143,9 @@ function mergeCounts(target: StageCounts, delta: Partial<StageCounts>): void {
 function leadNeedsTryKitt(raw: LeadRow, emptyEmailOnly?: boolean): boolean {
   if (cleanText(raw.email_business)) return false;
   const domainSettingRaw = cleanText(raw.domain_settings).toLowerCase().replace(/[^a-z]/g, "");
-  if (domainSettingRaw === "catchall") return false;
   if (emptyEmailOnly && cleanText(raw.email_business)) return false;
   const trykittEligible = domainSettingRaw === "";
-  return domainSettingRaw === "smtp" || trykittEligible;
+  return domainSettingRaw === "smtp" || domainSettingRaw === "catchall" || trykittEligible;
 }
 
 async function processLeadRow(
@@ -145,7 +156,7 @@ async function processLeadRow(
   rowOpts: {
     emptyEmailOnly?: boolean;
     leadIndex?: number;
-    trykittCache?: Map<number, FindEmailResult>;
+    trykittCache?: Map<number, EmailCacheResult>;
   } = {}
 ): Promise<RowOutcome> {
   const tag = `[${globalIndex + 1}/${batchTotal}]`;
@@ -162,16 +173,6 @@ async function processLeadRow(
 
   const emptyEmailMode = rowOpts.emptyEmailOnly === true;
 
-  if (domainSettingRaw === "catchall") {
-    return drop("catchall_skipped", { catchall_skipped: 1 }, {
-      reason: "catchall_skipped",
-      email: emailBusiness,
-      domain,
-      raw,
-      detail: cleanText(raw.domain_settings)
-    });
-  }
-
   if (emptyEmailMode && emailBusiness) {
     return drop("unknown_domain_setting", {}, {
       reason: "unknown_domain_setting",
@@ -184,7 +185,8 @@ async function processLeadRow(
 
   // Blank domain_settings + missing Email Business → TryKitt path (treat as SMTP at route).
   const trykittEligible = !emailBusiness && domainSettingRaw === "";
-  const domainEligible = domainSettingRaw === "smtp" || trykittEligible;
+  const domainEligible =
+    domainSettingRaw === "smtp" || domainSettingRaw === "catchall" || trykittEligible;
   if (!domainEligible) {
     return drop("unknown_domain_setting", {}, {
       reason: "unknown_domain_setting",
@@ -215,8 +217,18 @@ async function processLeadRow(
     });
   }
 
+  if (!emailBusiness && mx.esp === "outlook") {
+    return drop("outlook_skipped", base, {
+      reason: "outlook_skipped",
+      email: "",
+      domain,
+      raw,
+      detail: "outlook domain: skip TryKitt enrichment"
+    });
+  }
+
   let activeEmail = "";
-  let emailSource: "csv" | "trykit" = "csv";
+  let emailSource: "csv" | "trykitt" | "supabase" = "csv";
   let verificationStatus: string | null = null;
 
   if (emailBusiness) {
@@ -225,37 +237,56 @@ async function processLeadRow(
   } else {
     const cached =
       rowOpts.leadIndex !== undefined ? rowOpts.trykittCache?.get(rowOpts.leadIndex) : undefined;
-    const found =
-      cached ??
-      (await findEmail({
+
+    let foundEmail: string | null = null;
+    let foundDomain = domain;
+    let resolvedSource: "supabase" | "trykitt" = "trykitt";
+
+    if (cached) {
+      foundEmail = cached.email;
+      resolvedSource = cached.source;
+      foundDomain = cached.domainUsed ?? domain;
+    } else {
+      const found = await findEmail({
         firstName: raw.first_name,
         lastName: raw.last_name,
         companyName: raw.company_name,
         companyWebsite: raw.company_website,
         companyLinkedin: raw.company_linkedin,
         personLinkedin: raw.linkedin
-      }));
-    if (!found.email) {
+      });
+      foundEmail = found.email;
+      foundDomain = found.domainUsed || domain;
+      resolvedSource = "trykitt";
+    }
+
+    if (!foundEmail) {
       return drop("no_email_found", base, {
         reason: "no_email_found",
         email: "",
-        domain: found.domainUsed || domain,
+        domain: foundDomain,
         raw
       });
     }
-    const verify = await verifyEmail(found.email);
-    verificationStatus = verify.status;
-    if (!verify.accepted) {
-      return drop("email_unverified", base, {
-        reason: "email_unverified",
-        email: found.email,
-        domain: domainFromEmail(found.email),
-        raw,
-        detail: verify.status
-      });
+
+    if (resolvedSource === "supabase") {
+      activeEmail = foundEmail;
+      emailSource = "supabase";
+    } else {
+      const verify = await verifyEmail(foundEmail);
+      verificationStatus = verify.status;
+      if (!verify.accepted) {
+        return drop("email_unverified", base, {
+          reason: "email_unverified",
+          email: foundEmail,
+          domain: domainFromEmail(foundEmail),
+          raw,
+          detail: verify.status
+        });
+      }
+      activeEmail = foundEmail;
+      emailSource = "trykitt";
     }
-    activeEmail = found.email;
-    emailSource = "trykit";
   }
 
   const companyNameNormalized = await normalizeCompany(raw.company_name);
@@ -420,7 +451,8 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
       no_email_found: 0,
       email_unverified: 0,
         unknown_domain_setting: 0,
-        catchall_skipped: 0
+        catchall_skipped: 0,
+        outlook_skipped: 0
     }
   };
 
@@ -428,29 +460,59 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
   const enriched: EnrichedLead[] = [];
   const uploadErrors: Array<{ email: string; campaign_id: string; error_message: string }> = [];
 
-  const trykittCache = new Map<number, FindEmailResult>();
-  const trykittBatchItems = leads
+  const emailCache = new Map<number, EmailCacheResult>();
+  const trykittCandidates = leads
     .map((raw, i) => ({ raw, i }))
-    .filter(({ raw }) => leadNeedsTryKitt(raw, opts.emptyEmailOnly))
-    .map(({ raw, i }) => ({
+    .filter(({ raw }) => leadNeedsTryKitt(raw, opts.emptyEmailOnly));
+
+  const trykittBatchItems: Array<BatchFindEmailItem & { key: number }> = [];
+  for (const { raw, i } of trykittCandidates) {
+    const domain = resolveLeadDomain("", raw.company_website);
+    const mx = await classifyMx(domain);
+    if (mx.esp === "outlook") continue;
+    trykittBatchItems.push({
       key: i,
       firstName: raw.first_name,
       lastName: raw.last_name,
       companyName: raw.company_name,
       companyWebsite: raw.company_website,
       personLinkedin: raw.linkedin
-    }));
+    });
+  }
 
-  if (trykittBatchItems.length > 0) {
+  if (trykittBatchItems.length > 0 && process.env.SUPABASE_URL && process.env.SUPABASE_KEY) {
+    const lookupItems: SupabaseLookupItem[] = trykittBatchItems.map((item) => ({
+      key: item.key,
+      linkedin: cleanText(item.personLinkedin),
+      firstName: cleanText(item.firstName),
+      lastName: cleanText(item.lastName),
+      companyName: cleanText(item.companyName)
+    }));
+    console.log(`[pipeline] supabase prefetch: ${lookupItems.length} leads`);
+    const supabaseHits = await lookupEmailsFromDatabase(lookupItems);
+    for (const [key, email] of supabaseHits) {
+      emailCache.set(Number(key), { email, source: "supabase" });
+    }
+    console.log(`[pipeline] supabase prefetch done: ${supabaseHits.size} emails found`);
+  }
+
+  const remainingTrykitt = trykittBatchItems.filter((item) => !emailCache.has(item.key));
+  if (remainingTrykitt.length > 0) {
     console.log(
-      `[pipeline] trykitt batch prefetch: ${trykittBatchItems.length} jobs (parallel submit + GET /job poll)`
+      `[pipeline] trykitt batch prefetch: ${remainingTrykitt.length} jobs (parallel submit + GET /job poll)`
     );
-    const batchResults = await findEmailsBatch(trykittBatchItems);
+    const batchResults = await findEmailsBatch(remainingTrykitt);
     for (const [key, result] of batchResults) {
-      trykittCache.set(Number(key), result);
+      if (result.email) {
+        emailCache.set(Number(key), {
+          email: result.email,
+          source: "trykitt",
+          domainUsed: result.domainUsed
+        });
+      }
     }
     const found = [...batchResults.values()].filter((r) => r.email).length;
-    console.log(`[pipeline] trykitt batch done: ${found}/${trykittBatchItems.length} emails found`);
+    console.log(`[pipeline] trykitt batch done: ${found}/${remainingTrykitt.length} emails found`);
   }
 
   const rowConcurrency = Math.max(
@@ -464,7 +526,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
     const outcome = await processLeadRow(raw, config, startRow + i, leadsAll.length, {
       emptyEmailOnly: opts.emptyEmailOnly,
       leadIndex: i,
-      trykittCache
+      trykittCache: emailCache
     });
     completed++;
     if (completed % 25 === 0) {
@@ -487,7 +549,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
 
   console.log(`[pipeline] stage 6: supabase upsert (${enriched.length} rows)`);
   const supabaseRows = enriched.map((e) => toSupabaseRow(e, icp, competitors));
-  const supReport = await upsertLeads(supabaseRows);
+  const supReport =
+    process.env.SKIP_SUPABASE === "true"
+      ? { attempted: 0, succeeded: 0, failed: 0, errors: [] as Array<{ chunk: number; message: string }> }
+      : await upsertLeads(supabaseRows);
   counts.supabase_succeeded = supReport.succeeded;
   counts.supabase_failed = supReport.failed;
 

@@ -1,0 +1,12 @@
+{
+  "product": {
+    "name": "AI Ark",
+    "description": "AI-powered outbound platform that helps B2B teams find and engage ideal accounts with personalized cold email at scale."
+  },
+  "campaigns": {
+    "google_others": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a47850365fa564829fbcb53"
+    }
+  }
+}
