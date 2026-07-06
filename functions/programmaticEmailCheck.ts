@@ -40,28 +40,42 @@ export function programmaticEmailCheck(
     issues.push("HTML must only use div and br tags");
   }
   if (words >= 60) issues.push(`Too long: ${words} words`);
-  if (!plain.startsWith(`${first},`)) issues.push("Must start with first name and comma");
+  if (!plain.toLowerCase().startsWith(`${first.toLowerCase()},`)) {
+    issues.push("Must start with first name and comma");
+  }
   if (/^(hi|hello|dear)\b/i.test(plain)) issues.push("No salutations");
 
   for (const p of SPAM_PATTERNS) {
-    if (p.test(plain)) issues.push("Contains spam trigger language");
-    break;
+    if (p.test(plain)) {
+      issues.push("Contains spam trigger language");
+      break;
+    }
   }
   for (const p of WRONG_DIRECTION) {
-    if (p.test(plain)) issues.push("Wrong direction or templated opener");
-    break;
+    if (p.test(plain)) {
+      issues.push("Wrong direction or templated opener");
+      break;
+    }
   }
 
   if (!plain.includes(String(candidateCount))) {
     issues.push(`Must mention candidate count ${candidateCount}`);
   }
   if (!/\?/.test(plain)) issues.push("Must include a hiring question");
-  if (!/\b(hiring|hire|openings?|roles?|fill|staff|recruit|add|planning|looking for)\b/i.test(plain)) {
+  if (
+    !/\b(hiring|hire|openings?|roles?|fill|staff|recruit|add|planning|looking for|need|staffing|positions?)\b/i.test(
+      plain
+    )
+  ) {
     issues.push("Must ask about hiring or roles");
   }
 
-  const segments = plain.split(/(?<=[.!?])\s+/).filter(Boolean);
-  if (segments.length < 3) issues.push("Should have at least 3 distinct beats");
+  const lineCount = html
+    .replace(/<\/?div>/gi, "")
+    .split(/<br\s*\/?>/i)
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+  if (lineCount < 4) issues.push("Should have 4 lines");
 
   return { pass: issues.length === 0, issues };
 }

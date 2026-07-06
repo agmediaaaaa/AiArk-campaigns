@@ -296,7 +296,9 @@ async function processLead(
         first_name: firstName,
         last_name: lastName,
         company_name: companyName,
-        detail: coldEmail.humanizer.issues.join("; ") || `score=${coldEmail.humanizer.score}`
+        detail:
+          coldEmail.humanizer.issues.join("; ") ||
+          `score=${coldEmail.humanizer.score}`
       }
     };
   }

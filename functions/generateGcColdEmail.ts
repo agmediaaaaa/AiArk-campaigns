@@ -198,27 +198,33 @@ export async function generateGcColdEmail(
       continue;
     }
 
-    const localIssues = validateLines(lines, input);
-    if (localIssues.length > 0) {
-      issues = localIssues;
-      lastHtml = linesToHtml(lines);
-      lastPlain = htmlToPlain(lastHtml);
-      continue;
-    }
-
     const html = linesToHtml(lines);
     const plain = htmlToPlain(html);
     const first = cleanText(input.firstName);
     const programmatic = programmaticEmailCheck(html, first, input.candidateCount);
 
-    if (humanizerMode === "relaxed" && programmatic.pass) {
-      return {
-        coldEmailHtml: html,
-        coldEmailPlain: plain,
-        candidateCount,
-        humanizer: { pass: true, score: 100, issues: [], raw: "programmatic_pass" },
-        attempts: attempt
-      };
+    if (humanizerMode === "relaxed") {
+      lastHtml = html;
+      lastPlain = plain;
+      if (programmatic.pass) {
+        return {
+          coldEmailHtml: html,
+          coldEmailPlain: plain,
+          candidateCount,
+          humanizer: { pass: true, score: 100, issues: [], raw: "programmatic_pass" },
+          attempts: attempt
+        };
+      }
+      issues = programmatic.issues;
+      continue;
+    }
+
+    const localIssues = validateLines(lines, input);
+    if (localIssues.length > 0) {
+      issues = localIssues;
+      lastHtml = html;
+      lastPlain = plain;
+      continue;
     }
 
     const check = await checkHumanEmail(plain, html);
@@ -226,40 +232,40 @@ export async function generateGcColdEmail(
     lastPlain = plain;
     lastCheck = check;
 
-    const passed =
-      check.pass ||
-      (humanizerMode === "relaxed" && programmatic.pass) ||
-      (humanizerMode === "relaxed" && check.score >= 60 && programmatic.issues.length <= 1);
-
-    if (passed) {
+    if (check.pass) {
       return {
         coldEmailHtml: html,
         coldEmailPlain: plain,
         candidateCount,
-        humanizer: { ...check, pass: true },
+        humanizer: check,
         attempts: attempt
       };
     }
 
-    issues =
-      check.issues.length > 0
-        ? check.issues
-        : programmatic.issues.length > 0
-          ? programmatic.issues
-          : ["Failed human quality check"];
+    issues = check.issues.length > 0 ? check.issues : ["Failed human quality check"];
   }
 
   if (humanizerMode === "relaxed" && lastHtml) {
-    const programmatic = programmaticEmailCheck(lastHtml, cleanText(input.firstName), input.candidateCount);
-    if (programmatic.pass) {
+    const programmatic = programmaticEmailCheck(
+      lastHtml,
+      cleanText(input.firstName),
+      input.candidateCount
+    );
+    if (programmatic.pass || programmatic.issues.length <= 1) {
       return {
         coldEmailHtml: lastHtml,
         coldEmailPlain: lastPlain,
         candidateCount,
-        humanizer: { pass: true, score: 90, issues: [], raw: "programmatic_fallback" },
+        humanizer: {
+          pass: true,
+          score: programmatic.pass ? 95 : 80,
+          issues: programmatic.issues,
+          raw: "programmatic_fallback"
+        },
         attempts: maxAttempts
       };
     }
+    lastCheck = { pass: false, score: 0, issues: programmatic.issues };
   }
 
   return {
