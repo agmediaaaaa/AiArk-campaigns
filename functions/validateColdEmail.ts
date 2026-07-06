@@ -191,6 +191,128 @@ export function validateColdEmailHtml(
   return { ok: errors.length === 0, errors };
 }
 
+export function validateSaasColdEmailParts(
+  parts: { opening_line: string; value_line: string; cta: string } | string,
+  valueOrFirst?: string | number,
+  ctaOrSize?: string | number,
+  firstName?: string,
+  accountListSize?: number
+): ValidationResult {
+  let opening: string;
+  let value: string;
+  let cta: string;
+  let name: string;
+  let listSize: number;
+
+  if (typeof parts === "object") {
+    opening = parts.opening_line;
+    value = parts.value_line;
+    cta = parts.cta;
+    name = String(valueOrFirst ?? "");
+    listSize = Number(ctaOrSize ?? 0);
+  } else {
+    opening = parts;
+    value = String(valueOrFirst ?? "");
+    cta = String(ctaOrSize ?? "");
+    name = String(firstName ?? "");
+    listSize = Number(accountListSize ?? 0);
+  }
+
+  const errors: string[] = [];
+  if (!opening.trim()) errors.push("opening_line is empty");
+  if (!value.trim()) errors.push("value_line is empty");
+  if (!cta.trim()) errors.push("cta is empty");
+
+  const openingVal = validateOpeningLine(opening, name);
+  errors.push(...openingVal.errors);
+
+  if (!/^we can connect you with/i.test(value)) {
+    errors.push("value_line must start with 'We can connect you with'");
+  }
+  if (!/performance|only (get paid|pay when|pay for results)/i.test(value)) {
+    errors.push("value_line must include performance-basis language");
+  }
+  if (/speciali[sz]e/i.test(value) || /speciali[sz]e/i.test(opening)) {
+    errors.push("copy must not use 'specialize'");
+  }
+
+  if (!/quick call|brief call|15[\-–]min/i.test(cta)) {
+    errors.push("cta must ask for a quick call");
+  }
+  if (listSize > 0 && !new RegExp(`\\b${listSize}\\b`).test(cta)) {
+    errors.push(`cta must mention account list size ${listSize}`);
+  }
+  if (!/flagged|system/i.test(cta)) {
+    errors.push("cta must reference flagged accounts from our system");
+  }
+
+  for (const text of [opening, value, cta]) {
+    for (const p of [...BANNED_ROBOTIC, ...BANNED_POSSESSION]) {
+      if (p.test(text)) errors.push(`matches banned pattern: ${p}`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+export function assembleSaasColdEmailHtml(
+  firstName: string,
+  openingLine: string,
+  valueLine: string,
+  cta: string
+): string {
+  return `<div>${firstName}<br><br>${openingLine}<br><br>${valueLine}<br><br>${cta}</div>`;
+}
+
+export function validateSaasColdEmailHtml(html: string, firstName: string): ValidationResult {
+  const errors: string[] = [];
+  if (!html.startsWith("<div>") || !html.endsWith("</div>")) {
+    errors.push("HTML must start with <div> and end with </div>");
+  }
+
+  const bodyText = html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/?div>/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const words = bodyText.split(/\s+/).filter(Boolean);
+  if (words.length > 75) {
+    errors.push(`email word count ${words.length} (max 75)`);
+  }
+
+  if (!bodyText.toLowerCase().startsWith(firstName.toLowerCase())) {
+    errors.push("email must start with first name");
+  }
+  if (BANNED_SALUTATIONS.test(bodyText)) {
+    errors.push("email contains salutation");
+  }
+  for (const p of [...BANNED_ROBOTIC, ...BANNED_POSSESSION, ...BANNED_SIGNATURE]) {
+    if (p.test(bodyText)) errors.push(`email matches banned pattern: ${p}`);
+  }
+
+  const parts = html
+    .replace(/^<div>/, "")
+    .replace(/<\/div>$/, "")
+    .split(/<br\s*\/?>/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (parts.length < 4) {
+    errors.push("email should have first name + opening + value_line + cta");
+  }
+
+  const opening = parts[1] ?? "";
+  const value = parts[2] ?? "";
+  const cta = parts[parts.length - 1] ?? "";
+  const partsVal = validateSaasColdEmailParts({ opening_line: opening, value_line: value, cta }, firstName, 0);
+  if (!partsVal.ok && partsVal.errors.some((e) => !e.includes("account list size"))) {
+    errors.push(...partsVal.errors.filter((e) => !e.includes("account list size")));
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 export function assembleColdEmailHtml(
   firstName: string,
   openingLine: string,

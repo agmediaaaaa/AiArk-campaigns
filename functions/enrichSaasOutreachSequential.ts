@@ -3,7 +3,13 @@ import { classifyCompanyType } from "./classifyCompanyType.js";
 import { classifyGtmMotion } from "./classifyGtmMotion.js";
 import { buildSaasLeadContext, type SaasLeadInput } from "./buildSaasLeadContext.js";
 import { quickNormalizeCompanyName } from "./enrichMaLeadFast.js";
-import { assembleColdEmailHtml, validateColdEmailHtml, validateOpeningLine } from "./validateColdEmail.js";
+import {
+  assembleSaasColdEmailHtml,
+  validateSaasColdEmailHtml,
+  validateSaasColdEmailParts
+} from "./validateColdEmail.js";
+import { humanizeSaasColdEmail } from "./humanizeSaasColdEmail.js";
+import { buildCtaTemplate, buildValueLineTemplate, gtmOutreachFrame } from "./gtmOutreachFraming.js";
 
 export type SaasSequentialResult = {
   company_name_normalized: string;
@@ -13,6 +19,7 @@ export type SaasSequentialResult = {
   offer_metric: string;
   account_list_size: number;
   opening_line: string;
+  value_line: string;
   offer_line: string;
   cta: string;
   cold_email_html: string;
@@ -21,40 +28,95 @@ export type SaasSequentialResult = {
 const GLOBAL_BANS = `
 Never use:
 - "I noticed", "I saw", "Looks like you specialize in", "Your company is aligned with"
-- Empty compliments ("impressive", "stands out", "unique approach")
+- "specialize", "specialized", "specializing"
+- Empty compliments ("impressive", "stands out", "unique approach", "innovative")
 - Restating what their product does as the opening
 - Salutations besides the first name in the body
 - Signatures
+- Claiming leads are actively looking for their product
 `;
 
-const COPY_TEMP = 0.85;
+const COPY_TEMP = 0.7;
 const MAX_RETRIES = 2;
 
-async function generateSection(label: string, system: string, user: string): Promise<string> {
+async function generateDraft(
+  firstName: string,
+  companyName: string,
+  ctx: ReturnType<typeof buildSaasLeadContext>,
+  frame: ReturnType<typeof gtmOutreachFrame>,
+  accountListSize: number,
+  attempt: number
+): Promise<{ opening_line: string; value_line: string; cta: string }> {
   const openai = getOpenAI();
+  const valueTemplate = buildValueLineTemplate(frame, "qualified buyers in their market");
+  const ctaTemplate = buildCtaTemplate(frame, companyName, accountListSize);
+
+  const prompt = `Write a 3-part cold email for a B2B SaaS leader. Return strict JSON only:
+{
+  "opening_line": "market/buyer insight — NOT about their product",
+  "value_line": "We can connect you with [outcome]. [performance-basis sentence]",
+  "cta": "quick call ask + ${accountListSize} flagged accounts for ${companyName}"
+}
+
+${GLOBAL_BANS}
+
+Approved style examples:
+- Opening: buyer/market pressure insight in their industry (1-2 sentences, conversational)
+- Value line must start with "We can connect you with" and include performance-basis pay model
+- CTA must ask for a quick call and reference ${accountListSize} high-value accounts our system flagged
+
+Target connect outcome: ${frame.connectOutcome}
+Performance model hint: ${frame.performanceLine}
+CTA pattern hint: ${ctaTemplate}
+Buyer context: ${frame.buyerPersonaHint}
+
+${ctx.promptBlock}
+${ctx.gtmBlock}
+${attempt > 0 ? "Rewrite — previous draft was robotic, off-template, or failed validation." : ""}`;
+
   const out = await withRetry(
     () =>
       openai.chat.completions.create({
         model: DEFAULT_CHAT_MODEL,
         temperature: COPY_TEMP,
+        response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: system },
-          { role: "user", content: user }
+          { role: "system", content: "Return only valid JSON with opening_line, value_line, cta." },
+          { role: "user", content: prompt }
         ]
       }),
-    { label: `openai.${label}` }
+    { label: `openai.saas-draft "${firstName}"` }
   );
-  return cleanLine(out.choices[0]?.message?.content ?? "");
-}
 
-function cleanLine(text: string): string {
-  return text.replace(/^["']|["']$/g, "").trim();
+  try {
+    const obj = JSON.parse(out.choices[0]?.message?.content ?? "{}") as Record<string, string>;
+    let valueLine = String(obj.value_line ?? "").trim();
+    if (!/^we can connect you with/i.test(valueLine)) {
+      valueLine = valueTemplate;
+    }
+    let cta = String(obj.cta ?? "").trim();
+    if (!/\b\d+\b/.test(cta)) {
+      cta = ctaTemplate;
+    }
+    return {
+      opening_line: String(obj.opening_line ?? "").trim(),
+      value_line: valueLine,
+      cta
+    };
+  } catch {
+    return {
+      opening_line: "",
+      value_line: valueTemplate,
+      cta: ctaTemplate
+    };
+  }
 }
 
 export async function enrichSaasOutreachSequential(
   input: SaasLeadInput,
   productDescription: string
 ): Promise<SaasSequentialResult> {
+  void productDescription;
   const companyNameNormalized = quickNormalizeCompanyName(
     input.company_name_normalized || input.company_name
   );
@@ -74,90 +136,81 @@ export async function enrichSaasOutreachSequential(
 
   const ctx = buildSaasLeadContext({ ...input, company_name_normalized: companyNameNormalized, gtm });
   const firstName = ctx.firstName;
+  const frame = gtmOutreachFrame(gtm.motion, gtm.account_list_size);
 
   let openingLine = "";
-  let offerLine = "";
+  let valueLine = "";
   let cta = "";
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    openingLine = await generateSection(
-      `saas-opening "${firstName}"`,
-      `Write the opening line of a cold email to a B2B SaaS leader. It comes right after their first name.
-${GLOBAL_BANS}
-- Reference a market trend, buyer behavior shift, or industry observation — NOT their product
-- Sound like one operator talking to another
-- Under 22 words
-- Return only the opening line`,
-      `${ctx.promptBlock}
-
-${ctx.gtmBlock}
-${attempt > 0 ? "Rewrite — previous opening complimented or restated their product." : ""}`
+    const draft = await generateDraft(
+      firstName,
+      companyNameNormalized,
+      ctx,
+      frame,
+      gtm.account_list_size,
+      attempt
     );
 
-    const openingVal = validateOpeningLine(openingLine, firstName);
-    if (!openingVal.ok && attempt < MAX_RETRIES) continue;
+    const humanized = await humanizeSaasColdEmail(draft, {
+      firstName,
+      companyName: companyNameNormalized,
+      accountListSize: gtm.account_list_size
+    });
 
-    offerLine = await generateSection(
-      `saas-offer "${firstName}"`,
-      `Write the value proposition line of the same cold email. It must build on the opening.
-${GLOBAL_BANS}
-- Align the promise to their revenue motion and north star metric
-- Use this offer framing: ${gtm.offer_metric}
-- Do not mention pilots, retainers, refunds, or how we make money
-- One sentence, under 28 words
-- Return only the offer line`,
-      `Opening already written: "${openingLine}"
+    openingLine = humanized.opening_line;
+    valueLine = humanized.value_line;
+    cta = humanized.cta;
 
-${ctx.promptBlock}
-${ctx.gtmBlock}
-Our service (context only): ${productDescription}
-${attempt > 0 ? "Rewrite — offer did not match their GTM motion." : ""}`
-    );
+    const partsVal = validateSaasColdEmailParts(openingLine, valueLine, cta, firstName, gtm.account_list_size);
+    const html = assembleSaasColdEmailHtml(firstName, openingLine, valueLine, cta);
+    const emailVal = validateSaasColdEmailHtml(html, firstName);
 
-    cta = await generateSection(
-      `saas-cta "${firstName}"`,
-      `Write the closing CTA of the same cold email.
-${GLOBAL_BANS}
-- Offer a brief call to walk through how we target their ICP
-- Include a free scouted account list of ${gtm.account_list_size} accounts matched to their buyer profile
-- Do NOT claim leads are actively looking for their product
-- One sentence, casual, under 30 words
-- Return only the CTA`,
-      `Opening: "${openingLine}"
-Offer: "${offerLine}"
-${ctx.gtmBlock}
-${attempt > 0 ? "Rewrite — CTA felt templated or overpromised intent." : ""}`
-    );
-
-    const html = assembleColdEmailHtml(firstName, openingLine, offerLine, cta);
-    const emailVal = validateColdEmailHtml(html, firstName);
-    if (emailVal.ok || attempt === MAX_RETRIES) {
-      return {
-        company_name_normalized: companyNameNormalized,
-        company_type: companyType,
-        gtm_motion: gtm.motion,
-        north_star_metric: gtm.north_star_metric,
-        offer_metric: gtm.offer_metric,
-        account_list_size: gtm.account_list_size,
-        opening_line: openingLine,
-        offer_line: offerLine,
+    if ((partsVal.ok && emailVal.ok) || attempt === MAX_RETRIES) {
+      return buildResult({
+        companyNameNormalized,
+        companyType,
+        gtm,
+        openingLine,
+        valueLine,
         cta,
-        cold_email_html: html
-      };
+        html
+      });
     }
   }
 
-  const html = assembleColdEmailHtml(firstName, openingLine, offerLine, cta);
-  return {
-    company_name_normalized: companyNameNormalized,
-    company_type: companyType,
-    gtm_motion: gtm.motion,
-    north_star_metric: gtm.north_star_metric,
-    offer_metric: gtm.offer_metric,
-    account_list_size: gtm.account_list_size,
-    opening_line: openingLine,
-    offer_line: offerLine,
+  const html = assembleSaasColdEmailHtml(firstName, openingLine, valueLine, cta);
+  return buildResult({
+    companyNameNormalized,
+    companyType,
+    gtm,
+    openingLine,
+    valueLine,
     cta,
-    cold_email_html: html
+    html
+  });
+}
+
+function buildResult(args: {
+  companyNameNormalized: string;
+  companyType: string;
+  gtm: Awaited<ReturnType<typeof classifyGtmMotion>>;
+  openingLine: string;
+  valueLine: string;
+  cta: string;
+  html: string;
+}): SaasSequentialResult {
+  return {
+    company_name_normalized: args.companyNameNormalized,
+    company_type: args.companyType,
+    gtm_motion: args.gtm.motion,
+    north_star_metric: args.gtm.north_star_metric,
+    offer_metric: args.gtm.offer_metric,
+    account_list_size: args.gtm.account_list_size,
+    opening_line: args.openingLine,
+    value_line: args.valueLine,
+    offer_line: args.valueLine,
+    cta: args.cta,
+    cold_email_html: args.html
   };
 }
