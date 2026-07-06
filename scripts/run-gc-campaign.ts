@@ -15,7 +15,7 @@ import { normalizeCompany } from "../functions/normalizeCompany.js";
 import { enrichConstructionTalent } from "../functions/enrichConstructionTalent.js";
 import { findEmail, findEmailsBatch, type FindEmailResult } from "../functions/findEmail.js";
 import { verifyEmail } from "../functions/verifyEmail.js";
-import { generateGcColdEmail, pickCandidateCount } from "../functions/generateGcColdEmail.js";
+import { generateGcColdEmail, pickCandidateCount, type HumanizerMode } from "../functions/generateGcColdEmail.js";
 import { uploadLead, type PlusVibeLeadPayload } from "../integrations/plusvibe.js";
 import { mapPool } from "../functions/mapPool.js";
 
@@ -34,6 +34,7 @@ type EspMode = "google-others" | "outlook" | "auto";
 
 type ProcessOptions = {
   espMode: EspMode;
+  humanizerMode: HumanizerMode;
   trykittCache?: Map<number, FindEmailResult>;
 };
 
@@ -79,6 +80,12 @@ type EnrichedLead = {
 
 const GOOGLE_OTHERS_ESP: ReadonlySet<Esp> = new Set(["google", "others"]);
 const OUTLOOK_ESP: ReadonlySet<Esp> = new Set(["outlook"]);
+
+function resolveHumanizerMode(): HumanizerMode {
+  const raw = argValue("--humanizer-mode") ?? "strict";
+  if (raw === "strict" || raw === "relaxed") return raw;
+  throw new Error(`Invalid --humanizer-mode ${raw}; use strict or relaxed`);
+}
 
 function resolveEspMode(): EspMode {
   const raw = argValue("--esp-mode") ?? "auto";
@@ -256,21 +263,24 @@ async function processLead(
   });
 
   const candidateCount = pickCandidateCount(`${activeEmail}:${companyNameNormalized}`);
-  const coldEmail = await generateGcColdEmail({
-    firstName,
-    lastName,
-    title: cleanText(raw.title),
-    companyName,
-    companyNameNormalized,
-    companyDescription: raw.company_description,
-    companyProductsServices: raw.company_products_services,
-    companySize: cleanText(raw.company_size || raw.company_employee_count),
-    city: cleanText(raw.city),
-    state: cleanText(raw.state),
-    companyType: construction.companyType,
-    talentType: construction.talentType,
-    candidateCount
-  });
+  const coldEmail = await generateGcColdEmail(
+    {
+      firstName,
+      lastName,
+      title: cleanText(raw.title),
+      companyName,
+      companyNameNormalized,
+      companyDescription: raw.company_description,
+      companyProductsServices: raw.company_products_services,
+      companySize: cleanText(raw.company_size || raw.company_employee_count),
+      city: cleanText(raw.city),
+      state: cleanText(raw.state),
+      companyType: construction.companyType,
+      talentType: construction.talentType,
+      candidateCount
+    },
+    { humanizerMode: opts.humanizerMode }
+  );
 
   if (!coldEmail.humanizer.pass) {
     console.warn(
@@ -358,6 +368,7 @@ async function run(): Promise<void> {
   const pilot = Number(argValue("--pilot") ?? "0");
   const outDir = argValue("--output") ?? `run_outputs_gc_${Date.now()}`;
   const espMode = resolveEspMode();
+  const humanizerMode = resolveHumanizerMode();
 
   for (const key of ["OPENAI_API_KEY", "TRYKITT_API_KEY", "MILLIONVERIFIER_API_KEY", "PLUSVIBE_KEY"]) {
     if (!process.env[key]) {
@@ -373,6 +384,7 @@ async function run(): Promise<void> {
 
   console.log(`[gc-campaign] vertical=${config.vertical}`);
   console.log(`[gc-campaign] esp-mode=${espMode}`);
+  console.log(`[gc-campaign] humanizer-mode=${humanizerMode}`);
   console.log(`[gc-campaign] leads=${leads.length}/${leadsAll.length}`);
   console.log(
     `[gc-campaign] google/others campaign=${config.campaigns.googleOthers.campaignId}`
@@ -408,7 +420,7 @@ async function run(): Promise<void> {
 
   const outcomes = await mapPool(leads, concurrency, async (raw, i) => {
     try {
-      return await processLead(raw, config, i, leads.length, { espMode, trykittCache });
+      return await processLead(raw, config, i, leads.length, { espMode, humanizerMode, trykittCache });
     } catch (err) {
       const firstName = cleanText(raw.first_name);
       const lastName = cleanText(raw.last_name);
@@ -460,6 +472,7 @@ async function run(): Promise<void> {
     humanizer_fail: enriched.length - humanizerPass,
     drops_by_reason: drops,
     esp_mode: espMode,
+    humanizer_mode: humanizerMode,
     campaigns: config.campaigns
   };
 

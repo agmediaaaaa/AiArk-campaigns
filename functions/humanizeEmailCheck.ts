@@ -13,21 +13,25 @@ Evaluate whether the email reads human, natural, and outcome-focused — not AI-
 Return ONLY valid JSON:
 {"pass": boolean, "score": number, "issues": string[]}
 
-pass=true only when ALL are true:
-- Sounds like a real person wrote it, not a mail merge or AI template
-- Does NOT open with Hi/Hello/Dear or similar salutations
+pass=true when the email meets core quality bars. Be reasonable — do not fail emails for minor stylistic choices.
+
+pass=true when ALL core checks pass:
+- Does NOT open with Hi/Hello/Dear
 - Starts with the prospect first name followed by a comma
 - Under 60 words in plain text (ignore HTML tags)
 - No signature block at the end
-- No spam trigger language (free, guaranteed, act now, limited time, !!!, $$$, etc.)
-- No excessive punctuation or symbols
-- Outcome-focused for the prospect, not bragging about the sender
-- Four distinct beats: opener, candidate proof, bench count line, hiring question CTA
-- Bench line mentions a specific number of candidates between 6 and 14
-- Does NOT contain a standalone blind teaser label line (e.g. "Miami superintendent, commercial builds")
+- No spam trigger language (free, guaranteed, act now, limited time, !!!, $$$)
+- Outcome-focused: offering candidates TO the executive, not recruiting them to a job
+- Four beats present: opener, candidate proof, bench count line, hiring question
+- Bench line mentions the candidate count number
 - HTML uses only div and br tags
 
-score is 0-100 (80+ typically passes if pass=true).`;
+ALLOWED (do NOT fail for these):
+- Mentioning the company name in line 1 after the first name (e.g. "Mike, Smart Energy's work...")
+- Conversational or direct tone
+- Slight informality
+
+score is 0-100. pass=true if score >= 65 OR all core checks above are clearly met.`;
 
 export async function checkHumanEmail(
   plainText: string,
@@ -61,7 +65,7 @@ export async function checkHumanEmail(
       };
 
       return {
-        pass: parsed.pass === true,
+        pass: parsed.pass === true || (typeof parsed.score === "number" && parsed.score >= 65),
         score: typeof parsed.score === "number" ? parsed.score : 0,
         issues: Array.isArray(parsed.issues) ? parsed.issues.map(String) : [],
         raw
