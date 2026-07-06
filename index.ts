@@ -6,13 +6,18 @@ import { z } from "zod";
 
 import { runPipeline } from "./pipelines/main.js";
 
+const optionalNonEmpty = z
+  .string()
+  .optional()
+  .transform((v) => (v?.trim() ? v.trim() : undefined));
+
 const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   TRYKITT_API_KEY: z.string().min(1, "TRYKITT_API_KEY is required"),
   MILLIONVERIFIER_API_KEY: z.string().min(1, "MILLIONVERIFIER_API_KEY is required"),
   PLUSVIBE_KEY: z.string().min(1, "PLUSVIBE_KEY is required"),
-  SUPABASE_URL: z.string().url("SUPABASE_URL must be a URL").optional(),
-  SUPABASE_KEY: z.string().min(1, "SUPABASE_KEY is required").optional()
+  SUPABASE_URL: optionalNonEmpty.pipe(z.string().url("SUPABASE_URL must be a URL").optional()),
+  SUPABASE_KEY: optionalNonEmpty
 });
 
 const REQUIRED_KEYS = [
