@@ -93,12 +93,12 @@ function buildFallbackLines(input: GcColdEmailInput): string[] {
   const city = cleanText(input.city);
   const talent = (cleanText(input.talentType).split(",")[0] || "project managers").toLowerCase();
   const n = input.candidateCount;
-  const place = city ? ` around ${city}` : "";
+  const place = city ? ` in ${city}` : "";
 
   return [
-    `${first}, ${company}'s ${cleanText(input.companyType).toLowerCase() || "construction"} work${place} often comes down to having the right ${talent} on deck.`,
-    `We know a ${talent.replace(/s$/, "")} in our network who has kept similar jobs on schedule without dragging closeout.`,
-    `We can connect you with ${n} candidates along those lines if any fit.`,
+    `${first}, ${company}${place} usually needs strong ${talent} when schedules tighten.`,
+    `We know one in our network who has kept similar jobs on track through closeout.`,
+    `We can connect you with ${n} candidates along those lines.`,
     `What roles are you hiring for right now?`
   ];
 }
