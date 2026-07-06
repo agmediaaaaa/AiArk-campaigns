@@ -1,0 +1,40 @@
+{
+  "shard_dirs": [
+    "run_outputs_20260706_134802_shard0",
+    "run_outputs_20260706_134802_shard1",
+    "run_outputs_20260706_134802_shard2",
+    "run_outputs_20260706_134802_shard3"
+  ],
+  "totals": {
+    "input": 7740,
+    "smtp_eligible": 6717,
+    "catchall_skipped": 1023,
+    "uploaded_ok": 1710,
+    "uploaded_failed": 0,
+    "enriched": 1710,
+    "removed": 6030,
+    "upload_errors": 0,
+    "drops_by_reason": {
+      "security_gateway": 533,
+      "no_email_found": 1142,
+      "email_unverified": 33,
+      "unknown_domain_setting": 0,
+      "catchall_skipped": 1023,
+      "outlook_skipped": 2540,
+      "esp_not_allowed": 759
+    }
+  },
+  "esp_breakdown_enriched": {
+    "google": 1257,
+    "others": 453
+  },
+  "removed_by_reason_csv": {
+    "catchall_skipped": 1023,
+    "no_email_found": 1142,
+    "outlook_skipped": 2540,
+    "security_gateway": 533,
+    "esp_not_allowed": 759,
+    "email_unverified": 33
+  },
+  "uploaded_with_cold_email": 1710
+}
