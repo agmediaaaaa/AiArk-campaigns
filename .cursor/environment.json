@@ -1,0 +1,14 @@
+{
+  "install": "npm install",
+  "start": "echo 'See scripts/run-zs-saas-pipeline.ts'",
+  "env": {
+    "OPENAI_API_KEY": { "description": "OpenAI API key for enrichment + humanizer" },
+    "TRYKITT_API_KEY": { "description": "TryKitt email discovery" },
+    "MILLIONVERIFIER_API_KEY": { "description": "Email verification" },
+    "PLUSVIBE_KEY": { "description": "PlusVibe upload API key" },
+    "SUPABASE_URL": { "description": "Supabase project URL for Lead Database" },
+    "SUPABASE_KEY": { "description": "Supabase service role key" },
+    "PLUSVIBE_WORKSPACE_ID": { "description": "Optional override: 69a5b2169433a45c6f6d7d1c" },
+    "PLUSVIBE_CAMPAIGN_ID": { "description": "Optional override: 6a47850365fa564829fbcb53" }
+  }
+}
