@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "shards": "tsx scripts/run-parallel-shards.ts",
-    "gc-campaign": "tsx scripts/run-gc-campaign.ts"
+    "gc-campaign": "tsx scripts/run-gc-campaign.ts",
+    "extract-retry": "tsx scripts/extract-retry-leads.ts"
   },
   "engines": {
     "node": ">=20.0.0"

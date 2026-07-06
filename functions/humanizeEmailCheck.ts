@@ -33,46 +33,52 @@ export async function checkHumanEmail(
   plainText: string,
   html: string
 ): Promise<HumanizeCheckResult> {
-  try {
-    const openai = getOpenAI();
-    const out = await withRetry(
-      () =>
-        openai.chat.completions.create({
-          model: DEFAULT_CHAT_MODEL,
-          temperature: 0,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: SYSTEM },
-            {
-              role: "user",
-              content: `Plain text:\n${plainText}\n\nHTML:\n${html}`
-            }
-          ]
-        }),
-      { label: "openai.humanizeCheck" }
-    );
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const openai = getOpenAI();
+      const out = await withRetry(
+        () =>
+          openai.chat.completions.create({
+            model: DEFAULT_CHAT_MODEL,
+            temperature: 0,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: SYSTEM },
+              {
+                role: "user",
+                content: `Plain text:\n${plainText}\n\nHTML:\n${html}`
+              }
+            ]
+          }),
+        { label: `openai.humanizeCheck attempt=${attempt}` }
+      );
 
-    const raw = out.choices[0]?.message?.content?.trim() ?? "";
-    const parsed = JSON.parse(raw) as {
-      pass?: boolean;
-      score?: number;
-      issues?: string[];
-    };
+      const raw = out.choices[0]?.message?.content?.trim() ?? "";
+      const parsed = JSON.parse(raw) as {
+        pass?: boolean;
+        score?: number;
+        issues?: string[];
+      };
 
-    return {
-      pass: parsed.pass === true,
-      score: typeof parsed.score === "number" ? parsed.score : 0,
-      issues: Array.isArray(parsed.issues) ? parsed.issues.map(String) : [],
-      raw
-    };
-  } catch (err) {
-    console.warn(`[humanizeEmailCheck] checker failed: ${(err as Error).message}`);
-    return {
-      pass: false,
-      score: 0,
-      issues: ["humanizer checker error"]
-    };
+      return {
+        pass: parsed.pass === true,
+        score: typeof parsed.score === "number" ? parsed.score : 0,
+        issues: Array.isArray(parsed.issues) ? parsed.issues.map(String) : [],
+        raw
+      };
+    } catch (err) {
+      if (attempt === 2) {
+        console.warn(`[humanizeEmailCheck] checker failed: ${(err as Error).message}`);
+        return {
+          pass: false,
+          score: 0,
+          issues: ["humanizer checker error"]
+        };
+      }
+    }
   }
+
+  return { pass: false, score: 0, issues: ["humanizer checker error"] };
 }
 
 export function htmlToPlain(html: string): string {

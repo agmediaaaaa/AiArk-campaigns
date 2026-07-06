@@ -23,8 +23,18 @@ type LeadRow = Record<string, string>;
 
 type GcConfig = {
   vertical: string;
-  campaign: { workspaceId: string; campaignId: string };
+  campaigns: {
+    googleOthers: { workspaceId: string; campaignId: string };
+    outlook: { workspaceId: string; campaignId: string };
+  };
   limits?: { rowConcurrency?: number };
+};
+
+type EspMode = "google-others" | "outlook" | "auto";
+
+type ProcessOptions = {
+  espMode: EspMode;
+  trykittCache?: Map<number, FindEmailResult>;
 };
 
 type RemovedLead = {
@@ -67,7 +77,28 @@ type EnrichedLead = {
   upload_error: string;
 };
 
-const ELIGIBLE_ESP: ReadonlySet<Esp> = new Set(["google", "others"]);
+const GOOGLE_OTHERS_ESP: ReadonlySet<Esp> = new Set(["google", "others"]);
+const OUTLOOK_ESP: ReadonlySet<Esp> = new Set(["outlook"]);
+
+function resolveEspMode(): EspMode {
+  const raw = argValue("--esp-mode") ?? "auto";
+  if (raw === "google-others" || raw === "outlook" || raw === "auto") return raw;
+  throw new Error(`Invalid --esp-mode ${raw}; use google-others, outlook, or auto`);
+}
+
+function isEspEligible(esp: Esp, mode: EspMode): boolean {
+  if (mode === "google-others") return GOOGLE_OTHERS_ESP.has(esp);
+  if (mode === "outlook") return OUTLOOK_ESP.has(esp);
+  return GOOGLE_OTHERS_ESP.has(esp) || OUTLOOK_ESP.has(esp);
+}
+
+function resolveUploadTarget(
+  esp: Esp,
+  config: GcConfig
+): { workspaceId: string; campaignId: string } {
+  if (esp === "outlook") return config.campaigns.outlook;
+  return config.campaigns.googleOthers;
+}
 
 function argValue(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -98,9 +129,10 @@ async function processLead(
   config: GcConfig,
   globalIndex: number,
   total: number,
-  trykittCache?: Map<number, FindEmailResult>
+  opts: ProcessOptions
 ): Promise<{ kind: "removed"; row: RemovedLead } | { kind: "enriched"; row: EnrichedLead }> {
   const tag = `[${globalIndex + 1}/${total}]`;
+  const trykittCache = opts.trykittCache;
   const firstName = cleanText(raw.first_name);
   const lastName = cleanText(raw.last_name);
   const companyName = cleanText(raw.company_name);
@@ -131,21 +163,29 @@ async function processLead(
     };
   }
 
-  if (!ELIGIBLE_ESP.has(mx.esp)) {
+  if (!isEspEligible(mx.esp, opts.espMode)) {
+    const reason =
+      mx.esp === "outlook" && opts.espMode === "google-others"
+        ? "outlook_not_eligible"
+        : mx.esp !== "outlook" && opts.espMode === "outlook"
+          ? "non_outlook_not_eligible"
+          : "esp_not_eligible";
     return {
       kind: "removed",
       row: {
-        reason: mx.esp === "outlook" ? "outlook_not_eligible" : "esp_not_eligible",
+        reason,
         email: emailBusiness,
         domain,
         esp: mx.esp,
         first_name: firstName,
         last_name: lastName,
         company_name: companyName,
-        detail: `Only google/others enriched; got ${mx.esp}`
+        detail: `ESP ${mx.esp} not eligible for mode ${opts.espMode}`
       }
     };
   }
+
+  const uploadTarget = resolveUploadTarget(mx.esp, config);
 
   let activeEmail = "";
   let emailSource: "csv" | "trykit" = "csv";
@@ -273,10 +313,10 @@ async function processLead(
     }
   };
 
-  const upload = await uploadLead(payload, config.campaign);
+  const upload = await uploadLead(payload, uploadTarget);
 
   console.log(
-    `${tag} ${firstName} ${lastName} @ ${companyName} | ${activeEmail} | esp=${mx.esp} | humanizer=${coldEmail.humanizer.pass} | upload=${upload.ok}`
+    `${tag} ${firstName} ${lastName} @ ${companyName} | ${activeEmail} | esp=${mx.esp} | campaign=${uploadTarget.campaignId} | humanizer=${coldEmail.humanizer.pass} | upload=${upload.ok}`
   );
 
   return {
@@ -317,6 +357,7 @@ async function run(): Promise<void> {
   const configPath = argValue("--config") ?? "configs/gc_campaign.json";
   const pilot = Number(argValue("--pilot") ?? "0");
   const outDir = argValue("--output") ?? `run_outputs_gc_${Date.now()}`;
+  const espMode = resolveEspMode();
 
   for (const key of ["OPENAI_API_KEY", "TRYKITT_API_KEY", "MILLIONVERIFIER_API_KEY", "PLUSVIBE_KEY"]) {
     if (!process.env[key]) {
@@ -331,10 +372,12 @@ async function run(): Promise<void> {
   fs.mkdirSync(outDir, { recursive: true });
 
   console.log(`[gc-campaign] vertical=${config.vertical}`);
+  console.log(`[gc-campaign] esp-mode=${espMode}`);
   console.log(`[gc-campaign] leads=${leads.length}/${leadsAll.length}`);
   console.log(
-    `[gc-campaign] upload target workspace=${config.campaign.workspaceId} campaign=${config.campaign.campaignId}`
+    `[gc-campaign] google/others campaign=${config.campaigns.googleOthers.campaignId}`
   );
+  console.log(`[gc-campaign] outlook campaign=${config.campaigns.outlook.campaignId}`);
 
   const trykittCache = new Map<number, FindEmailResult>();
   const trykittItems = leads
@@ -365,7 +408,7 @@ async function run(): Promise<void> {
 
   const outcomes = await mapPool(leads, concurrency, async (raw, i) => {
     try {
-      return await processLead(raw, config, i, leads.length, trykittCache);
+      return await processLead(raw, config, i, leads.length, { espMode, trykittCache });
     } catch (err) {
       const firstName = cleanText(raw.first_name);
       const lastName = cleanText(raw.last_name);
@@ -416,7 +459,8 @@ async function run(): Promise<void> {
     humanizer_pass: humanizerPass,
     humanizer_fail: enriched.length - humanizerPass,
     drops_by_reason: drops,
-    campaign: config.campaign
+    esp_mode: espMode,
+    campaigns: config.campaigns
   };
 
   fs.writeFileSync(path.join(outDir, "run_summary.json"), JSON.stringify(summary, null, 2));

@@ -178,7 +178,7 @@ export async function generateGcColdEmail(
   input: GcColdEmailInput,
   opts: { maxAttempts?: number } = {}
 ): Promise<GcColdEmailOutput> {
-  const maxAttempts = opts.maxAttempts ?? 6;
+  const maxAttempts = opts.maxAttempts ?? 8;
   const candidateCount = input.candidateCount;
   let issues: string[] = [];
   let lastHtml = "";
