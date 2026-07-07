@@ -129,6 +129,12 @@ function leadNeedsTryKitt(raw: LeadRow): boolean {
   return !cleanText(raw.email_business);
 }
 
+function leadFirstName(raw: LeadRow): string {
+  const full = cleanText(raw.first_name);
+  const token = full.split(/\s+/)[0] ?? full;
+  return token.replace(/[^a-zA-Z'-]/g, "") || full;
+}
+
 async function processLead(
   raw: LeadRow,
   config: GcConfig,
@@ -138,7 +144,7 @@ async function processLead(
 ): Promise<{ kind: "removed"; row: RemovedLead } | { kind: "enriched"; row: EnrichedLead }> {
   const tag = `[${globalIndex + 1}/${total}]`;
   const trykittCache = opts.trykittCache;
-  const firstName = cleanText(raw.first_name);
+  const firstName = leadFirstName(raw);
   const lastName = cleanText(raw.last_name);
   const companyName = cleanText(raw.company_name);
   const emailBusiness = cleanText(raw.email_business);
