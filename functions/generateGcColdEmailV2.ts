@@ -1,6 +1,7 @@
 import { DEFAULT_CHAT_MODEL, getOpenAI, withRetry } from "../integrations/openai.js";
 import { cleanText } from "./classifyMx.js";
 import { countWords, htmlToPlain } from "./humanizeEmailCheck.js";
+import { programmaticEmailCheck } from "./programmaticEmailCheck.js";
 
 export type GcScriptInput = {
   firstName: string;
@@ -23,6 +24,8 @@ export type GcScriptOutput = {
   coldEmailPlain: string;
   lines: string[];
   wordCount: number;
+  pass: boolean;
+  issues: string[];
 };
 
 const BANNED = [
@@ -37,11 +40,22 @@ const BANNED = [
   /usually needs strong/i,
   /hope this message/i,
   /i believe/i,
-  /i wanted to reach out/i
+  /i wanted to reach out/i,
+  /\$/,
+  /[!]{2,}/
+];
+
+const SINGLE_CANDIDATE = [
+  /\bwe have a \w+/i,
+  /\bwe have one\b/i,
+  /\bi have a \w+ who\b/i,
+  /\bone (project manager|superintendent|foreman|estimator|pm)\b/i,
+  /\bconnect you with (that|this|the) (person|candidate|profile|pm|superintendent)\b/i,
+  /\bintroduce you to (that|this|the|one)\b/i
 ];
 
 const EXAMPLE = `Mike, Smart Energy's insulation work around Detroit bottlenecks when field foremen fall behind mechanical schedules.
-We have a foreman who has kept mission-critical insulation jobs moving without slowing the mechanical contractor.
+People in our network with similar commercial insulation backgrounds have kept mission-critical jobs on schedule without slowing mechanical contractors.
 We are in touch with 8 candidates who would fit that kind of role.
 Any field roles you are hiring for or planning to add soon?`;
 
@@ -52,7 +66,7 @@ function buildContext(input: GcScriptInput): string {
     `Company: ${cleanText(input.companyNameNormalized) || cleanText(input.companyName)}`,
     `Company Type: ${cleanText(input.companyType)}`,
     `Talent Type Needed: ${cleanText(input.talentType)}`,
-    `Blind Candidate Teaser: ${cleanText(input.candidateTeaser)}`,
+    `Blind Candidate Teaser (profile type only, not a person to introduce): ${cleanText(input.candidateTeaser)}`,
     `Location: ${cleanText(input.city)}${input.state ? `, ${cleanText(input.state)}` : ""}`,
     `Employee Size: ${cleanText(input.companySize)}`,
     `Services: ${cleanText(input.companyProductsServices)}`,
@@ -66,11 +80,21 @@ function lineIssues(line: string, lineNumber: number, input: GcScriptInput, allL
   const first = cleanText(input.firstName);
 
   if (lineNumber === 1 && !line.startsWith(`${first},`)) issues.push("Line 1 must start with first name and comma");
-  if (BANNED.some((p) => p.test(line))) issues.push("Remove AI/template phrasing");
+  if (BANNED.some((p) => p.test(line))) issues.push("Remove banned phrasing or symbols");
+  if (SINGLE_CANDIDATE.some((p) => p.test(line))) {
+    issues.push("Do not reference one specific candidate or offer to connect to one person");
+  }
+  if (lineNumber === 2 && /\bwe have a\b/i.test(line)) {
+    issues.push("Line 2 must describe candidate types in the network, not one person");
+  }
   if (lineNumber === 3 && !line.includes(String(input.candidateCount))) {
     issues.push(`Line 3 must include candidate count ${input.candidateCount}`);
   }
-  if (lineNumber === 4 && (!/\?/.test(line) || !/\b(hiring|hire|openings?|roles?|fill|staff|add|planning|looking for)\b/i.test(line))) {
+  if (
+    lineNumber === 4 &&
+    (!/\?/.test(line) ||
+      !/\b(hiring|hire|openings?|roles?|fill|staff|add|planning|looking for)\b/i.test(line))
+  ) {
     issues.push("Line 4 must ask about hiring with a question");
   }
   if (countWords(allLines.join(" ")) >= 60) issues.push("Total email must stay under 60 words");
@@ -82,6 +106,25 @@ function lineIssues(line: string, lineNumber: number, input: GcScriptInput, allL
   return issues;
 }
 
+function fullScriptIssues(lines: string[], input: GcScriptInput, html: string): string[] {
+  const plain = htmlToPlain(html);
+  const issues = [...lineIssues("", 1, input, lines)]; // noop placeholder
+  issues.length = 0;
+
+  if (countWords(plain) >= 60) issues.push(`Too long: ${countWords(plain)} words`);
+  if (BANNED.some((p) => p.test(plain))) issues.push("Contains banned phrasing or symbols");
+  if (SINGLE_CANDIDATE.some((p) => p.test(plain))) {
+    issues.push("Do not offer one specific candidate or the teaser person");
+  }
+  if (!plain.includes(String(input.candidateCount))) {
+    issues.push("Must include candidate count");
+  }
+
+  const programmatic = programmaticEmailCheck(html, cleanText(input.firstName), input.candidateCount);
+  issues.push(...programmatic.issues);
+  return [...new Set(issues)];
+}
+
 async function writeLine(
   input: GcScriptInput,
   lineNumber: 1 | 2 | 3 | 4,
@@ -89,9 +132,9 @@ async function writeLine(
   fixNotes: string[] = []
 ): Promise<string> {
   const prompts: Record<number, string> = {
-    1: "Write line 1 only. One short, specific opener about their company work, project type, location, or size. Sound human. No compliments.",
-    2: "Write line 2 only. One anonymized candidate proof tied to the teaser and talent type. Mention a concrete outcome, not adjectives.",
-    3: `Write line 3 only. Say we can connect them with exactly ${input.candidateCount} candidates like that. Vary phrasing.`,
+    1: "Write line 1 only. One short opener about their company work, project type, location, or size. Use only locations from the data. No compliments.",
+    2: "Write line 2 only. Describe outcomes for candidate TYPES in our network that match the teaser profile. Use plural language like 'people in our network with similar backgrounds'. Never say we have one person or offer to connect one candidate.",
+    3: `Write line 3 only. Say we can connect them with exactly ${input.candidateCount} candidates with backgrounds like that. Do not reference one person.`,
     4: "Write line 4 only. Ask what they are hiring for or what roles are hard to fill. End with ?."
   };
 
@@ -107,7 +150,9 @@ async function writeLine(
             role: "system",
             content: `You write one line at a time for construction recruiting cold emails.
 Tone example:\n${EXAMPLE}
-Never use: I noticed, impressive, high-caliber, elevate, seamlessly, I believe, I wanted to reach out.
+Never use dollar signs, spam words, or symbols.
+Never say we have one candidate or will connect them to one specific person.
+The teaser is a profile type label, not a person to introduce.
 Return ONLY JSON: {"line":"..."}`
           },
           {
@@ -138,20 +183,29 @@ export function linesToHtml(lines: string[]): string {
 
 export async function generateGcColdEmailV2(
   input: GcScriptInput,
-  opts: { maxRewrites?: number } = {}
+  opts: { maxRewrites?: number; seedFeedback?: string[] } = {}
 ): Promise<GcScriptOutput> {
-  const maxRewrites = opts.maxRewrites ?? 3;
+  const maxRewrites = opts.maxRewrites ?? 2;
   let best: string[] = [];
   let bestWords = 999;
+  let bestIssues: string[] = ["failed"];
 
   for (let attempt = 0; attempt <= maxRewrites; attempt++) {
     const lines: string[] = [];
-    const fixNotes: string[] = attempt > 0 ? ["Previous draft was too long or templated. Be shorter and more specific."] : [];
+    const fixNotes: string[] =
+      attempt > 0
+        ? [
+            "Previous draft failed quality checks. Shorter, specific, no dollar signs, no single-candidate language.",
+            ...(opts.seedFeedback ?? [])
+          ]
+        : attempt === 0 && opts.seedFeedback?.length
+          ? opts.seedFeedback
+          : [];
 
     for (const n of [1, 2, 3, 4] as const) {
       let line = "";
       let localFix = [...fixNotes];
-      for (let tries = 0; tries < 3; tries++) {
+      for (let tries = 0; tries < 2; tries++) {
         line = await writeLine(input, n, lines, localFix);
         const issues = lineIssues(line, n, input, [...lines, line]);
         if (issues.length === 0) break;
@@ -160,17 +214,35 @@ export async function generateGcColdEmailV2(
       lines.push(line);
     }
 
-    const words = countWords(lines.join(" "));
+    const html = linesToHtml(lines);
+    const words = countWords(htmlToPlain(html));
+    const issues = fullScriptIssues(lines, input, html);
+
     if (words < bestWords) {
       best = lines;
       bestWords = words;
+      bestIssues = issues;
     }
-    if (words < 60 && !BANNED.some((p) => p.test(lines.join(" ")))) {
-      const html = linesToHtml(lines);
-      return { coldEmailHtml: html, coldEmailPlain: htmlToPlain(html), lines, wordCount: words };
+
+    if (issues.length === 0 && words < 60) {
+      return {
+        coldEmailHtml: html,
+        coldEmailPlain: htmlToPlain(html),
+        lines,
+        wordCount: words,
+        pass: true,
+        issues: []
+      };
     }
   }
 
   const html = linesToHtml(best);
-  return { coldEmailHtml: html, coldEmailPlain: htmlToPlain(html), lines: best, wordCount: bestWords };
+  return {
+    coldEmailHtml: html,
+    coldEmailPlain: htmlToPlain(html),
+    lines: best,
+    wordCount: bestWords,
+    pass: bestIssues.length === 0 && bestWords < 60,
+    issues: bestIssues
+  };
 }

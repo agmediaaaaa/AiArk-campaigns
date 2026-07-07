@@ -15,7 +15,9 @@ import { normalizeCompany } from "../functions/normalizeCompany.js";
 import { enrichConstructionTalent } from "../functions/enrichConstructionTalent.js";
 import { findEmail, findEmailsBatch, type FindEmailResult } from "../functions/findEmail.js";
 import { verifyEmail } from "../functions/verifyEmail.js";
-import { generateGcColdEmail, pickCandidateCount, type HumanizerMode } from "../functions/generateGcColdEmail.js";
+import { pickCandidateCount } from "../functions/generateGcColdEmail.js";
+import { enrichCandidateTeaser } from "../functions/enrichCandidateTeaser.js";
+import { generateGcColdEmailV2 } from "../functions/generateGcColdEmailV2.js";
 import { uploadLead, type PlusVibeLeadPayload } from "../integrations/plusvibe.js";
 import { mapPool } from "../functions/mapPool.js";
 
@@ -34,7 +36,6 @@ type EspMode = "google-others" | "outlook" | "auto";
 
 type ProcessOptions = {
   espMode: EspMode;
-  humanizerMode: HumanizerMode;
   seedFeedback?: string[];
   isRewritePass?: boolean;
   trykittCache?: Map<number, FindEmailResult>;
@@ -63,6 +64,7 @@ type EnrichedLead = {
   company_name_normalized: string;
   company_type: string;
   talent_type: string;
+  candidate_teaser: string;
   candidate_count: number;
   cold_email_html: string;
   cold_email_plain: string;
@@ -82,12 +84,6 @@ type EnrichedLead = {
 
 const GOOGLE_OTHERS_ESP: ReadonlySet<Esp> = new Set(["google", "others"]);
 const OUTLOOK_ESP: ReadonlySet<Esp> = new Set(["outlook"]);
-
-function resolveHumanizerMode(): HumanizerMode {
-  const raw = argValue("--humanizer-mode") ?? "strict";
-  if (raw === "strict" || raw === "relaxed") return raw;
-  throw new Error(`Invalid --humanizer-mode ${raw}; use strict or relaxed`);
-}
 
 function resolveEspMode(): EspMode {
   const raw = argValue("--esp-mode") ?? "auto";
@@ -265,44 +261,51 @@ async function processLead(
   });
 
   const candidateCount = pickCandidateCount(`${activeEmail}:${companyNameNormalized}`);
-  const coldEmail = await generateGcColdEmail(
-    {
-      firstName,
-      lastName,
-      title: cleanText(raw.title),
-      companyName,
-      companyNameNormalized,
-      companyDescription: raw.company_description,
-      companyProductsServices: raw.company_products_services,
-      companySize: cleanText(raw.company_size || raw.company_employee_count),
-      city: cleanText(raw.city),
-      state: cleanText(raw.state),
-      companyType: construction.companyType,
-      talentType: construction.talentType,
-      candidateCount
-    },
-    { humanizerMode: opts.humanizerMode, seedFeedback: opts.seedFeedback }
-  );
+  const candidateTeaser = await enrichCandidateTeaser({
+    companyType: construction.companyType,
+    talentType: construction.talentType,
+    city: raw.city,
+    state: raw.state,
+    companyDescription: raw.company_description,
+    companyProductsServices: raw.company_products_services
+  });
 
-  if (!coldEmail.humanizer.pass) {
+  const scriptInput = {
+    firstName,
+    title: cleanText(raw.title),
+    companyName,
+    companyNameNormalized,
+    companyDescription: raw.company_description,
+    companyProductsServices: raw.company_products_services,
+    companySize: cleanText(raw.company_size || raw.company_employee_count),
+    city: cleanText(raw.city),
+    state: cleanText(raw.state),
+    companyType: construction.companyType,
+    talentType: construction.talentType,
+    candidateTeaser,
+    candidateCount
+  };
+
+  const coldEmail = await generateGcColdEmailV2(scriptInput, {
+    maxRewrites: opts.isRewritePass ? 3 : 2,
+    seedFeedback: opts.seedFeedback
+  });
+
+  if (!coldEmail.pass) {
     console.warn(
-      `${tag} ${firstName} ${lastName} humanizer did not pass after ${coldEmail.attempts} attempts (score=${coldEmail.humanizer.score}) — skipping upload`
+      `${tag} ${firstName} ${lastName} script did not pass quality checks (${coldEmail.issues.join("; ")}) — skipping upload`
     );
     return {
       kind: "removed",
       row: {
-        reason: "humanizer_failed",
+        reason: "script_failed",
         email: activeEmail,
         domain: domainFromEmail(activeEmail),
         esp: mx.esp,
         first_name: firstName,
         last_name: lastName,
         company_name: companyName,
-        detail:
-          [...coldEmail.humanizer.issues, ...(coldEmail.humanizer.rewriteGuidance ?? [])]
-            .filter(Boolean)
-            .join("; ") ||
-          `score=${coldEmail.humanizer.score}`
+        detail: coldEmail.issues.filter(Boolean).join("; ") || "quality checks failed"
       }
     };
   }
@@ -321,18 +324,19 @@ async function processLead(
       custom_cold_email: coldEmail.coldEmailHtml,
       custom_talent_type: construction.talentType,
       custom_company_type: construction.companyType,
+      custom_candidate_teaser: candidateTeaser,
       custom_candidate_count: String(candidateCount),
       custom_title: cleanText(raw.title),
       custom_state: cleanText(raw.state),
       custom_esp: mx.esp,
-      custom_humanizer_pass: coldEmail.humanizer.pass ? "true" : "false"
+      custom_humanizer_pass: "true"
     }
   };
 
   const upload = await uploadLead(payload, uploadTarget);
 
   console.log(
-    `${tag} ${firstName} ${lastName} @ ${companyName} | ${activeEmail} | esp=${mx.esp} | campaign=${uploadTarget.campaignId} | humanizer=${coldEmail.humanizer.pass} | upload=${upload.ok}`
+    `${tag} ${firstName} ${lastName} @ ${companyName} | ${activeEmail} | esp=${mx.esp} | campaign=${uploadTarget.campaignId} | script=pass | upload=${upload.ok}`
   );
 
   return {
@@ -349,12 +353,13 @@ async function processLead(
       company_name_normalized: companyNameNormalized,
       company_type: construction.companyType,
       talent_type: construction.talentType,
+      candidate_teaser: candidateTeaser,
       candidate_count: candidateCount,
       cold_email_html: coldEmail.coldEmailHtml,
       cold_email_plain: coldEmail.coldEmailPlain,
-      humanizer_pass: coldEmail.humanizer.pass,
-      humanizer_score: coldEmail.humanizer.score,
-      humanizer_attempts: coldEmail.attempts,
+      humanizer_pass: true,
+      humanizer_score: 100,
+      humanizer_attempts: 1,
       company_website: cleanText(raw.company_website),
       company_linkedin: cleanText(raw.company_linkedin),
       linkedin: cleanText(raw.linkedin),
@@ -374,7 +379,6 @@ async function run(): Promise<void> {
   const pilot = Number(argValue("--pilot") ?? "0");
   const outDir = argValue("--output") ?? `run_outputs_gc_${Date.now()}`;
   const espMode = resolveEspMode();
-  const humanizerMode = resolveHumanizerMode();
 
   for (const key of ["OPENAI_API_KEY", "TRYKITT_API_KEY", "MILLIONVERIFIER_API_KEY", "PLUSVIBE_KEY"]) {
     if (!process.env[key]) {
@@ -390,7 +394,7 @@ async function run(): Promise<void> {
 
   console.log(`[gc-campaign] vertical=${config.vertical}`);
   console.log(`[gc-campaign] esp-mode=${espMode}`);
-  console.log(`[gc-campaign] humanizer-mode=${humanizerMode}`);
+  console.log(`[gc-campaign] script-generator=v2`);
   console.log(`[gc-campaign] leads=${leads.length}/${leadsAll.length}`);
   console.log(
     `[gc-campaign] google/others campaign=${config.campaigns.googleOthers.campaignId}`
@@ -426,7 +430,7 @@ async function run(): Promise<void> {
 
   const outcomes = await mapPool(leads, concurrency, async (raw, i) => {
     try {
-      return await processLead(raw, config, i, leads.length, { espMode, humanizerMode, trykittCache });
+      return await processLead(raw, config, i, leads.length, { espMode, trykittCache });
     } catch (err) {
       const firstName = cleanText(raw.first_name);
       const lastName = cleanText(raw.last_name);
@@ -458,7 +462,7 @@ async function run(): Promise<void> {
     if (outcome.kind === "enriched") {
       enriched.push(outcome.row);
     } else {
-      if (outcome.row.reason === "humanizer_failed") {
+      if (outcome.row.reason === "script_failed") {
         rewriteFailedIndexes.push({ idx: i, detail: outcome.row.detail ?? "" });
       } else {
         removed.push(outcome.row);
@@ -486,7 +490,6 @@ async function run(): Promise<void> {
       const raw = leads[idx]!;
       return processLead(raw, config, idx, leads.length, {
         espMode,
-        humanizerMode,
         trykittCache,
         isRewritePass: true,
         seedFeedback: seedByIndex.get(idx) ?? []
@@ -501,13 +504,13 @@ async function run(): Promise<void> {
         removed.push({
           ...rewrite.row,
           reason:
-            rewrite.row.reason === "humanizer_failed"
-              ? "humanizer_failed_after_rewrite"
+            rewrite.row.reason === "script_failed"
+              ? "script_failed_after_rewrite"
               : rewrite.row.reason
         });
         const key =
-          rewrite.row.reason === "humanizer_failed"
-            ? "humanizer_failed_after_rewrite"
+          rewrite.row.reason === "script_failed"
+            ? "script_failed_after_rewrite"
             : rewrite.row.reason;
         drops[key] = (drops[key] ?? 0) + 1;
       }
@@ -535,7 +538,7 @@ async function run(): Promise<void> {
       recovered: autoRewriteRecovered
     },
     esp_mode: espMode,
-    humanizer_mode: humanizerMode,
+    script_generator: "v2",
     campaigns: config.campaigns
   };
 

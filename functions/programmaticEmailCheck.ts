@@ -11,7 +11,8 @@ const SPAM_PATTERNS = [
   /\bact now\b/i,
   /\blimited time\b/i,
   /!{2,}/,
-  /\$\$\$/,
+  /\$/,
+  /[!]{2,}/,
   /\bclick here\b/i,
   /\bunsubscribe\b/i
 ];
@@ -58,6 +59,7 @@ export function programmaticEmailCheck(
     }
   }
 
+  if (/[!$]/.test(plain)) issues.push("No dollar signs or symbol spam");
   if (!plain.includes(String(candidateCount))) {
     issues.push(`Must mention candidate count ${candidateCount}`);
   }
