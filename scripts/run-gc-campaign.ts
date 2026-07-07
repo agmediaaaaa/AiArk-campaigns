@@ -287,7 +287,7 @@ async function processLead(
   };
 
   const coldEmail = await generateGcColdEmailV2(scriptInput, {
-    maxRewrites: opts.isRewritePass ? 3 : 2,
+    maxRewrites: opts.isRewritePass ? 5 : 4,
     seedFeedback: opts.seedFeedback
   });
 

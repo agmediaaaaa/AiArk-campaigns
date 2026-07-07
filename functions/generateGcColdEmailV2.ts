@@ -59,6 +59,9 @@ People in our network with similar commercial insulation backgrounds have kept m
 We are in touch with 8 candidates who would fit that kind of role.
 Any field roles you are hiring for or planning to add soon?`;
 
+const MAX_TOTAL_WORDS = 55;
+const MAX_BY_LINE = [15, 15, 13, 12];
+
 function buildContext(input: GcScriptInput): string {
   return [
     `First Name: ${cleanText(input.firstName)}`,
@@ -99,7 +102,7 @@ function lineIssues(line: string, lineNumber: number, input: GcScriptInput, allL
   }
   if (countWords(allLines.join(" ")) >= 60) issues.push("Total email must stay under 60 words");
 
-  const maxByLine = [18, 18, 16, 14];
+  const maxByLine = MAX_BY_LINE;
   if (countWords(line) > (maxByLine[lineNumber - 1] ?? 18)) {
     issues.push(`Line ${lineNumber} too long`);
   }
@@ -131,11 +134,15 @@ async function writeLine(
   priorLines: string[],
   fixNotes: string[] = []
 ): Promise<string> {
+  const usedWords = countWords(priorLines.join(" "));
+  const lineBudget = Math.max(8, MAX_BY_LINE[lineNumber - 1] ?? 12);
+  const remainingBudget = Math.max(8, MAX_TOTAL_WORDS - usedWords);
+
   const prompts: Record<number, string> = {
-    1: "Write line 1 only. One short opener about their company work, project type, location, or size. Use only locations from the data. No compliments.",
-    2: "Write line 2 only. Describe outcomes for candidate TYPES in our network that match the teaser profile. Use plural language like 'people in our network with similar backgrounds'. Never say we have one person or offer to connect one candidate.",
-    3: `Write line 3 only. Say we can connect them with exactly ${input.candidateCount} candidates with backgrounds like that. Do not reference one person.`,
-    4: "Write line 4 only. Ask what they are hiring for or what roles are hard to fill. End with ?."
+    1: `Write line 1 only. Max ${lineBudget} words. One short opener about their company work, project type, location, or size. Use only locations from the data. No compliments.`,
+    2: `Write line 2 only. Max ${Math.min(lineBudget, remainingBudget)} words. Describe outcomes for candidate TYPES in our network that match the teaser profile. Use plural language like 'people in our network with similar backgrounds'. Never say we have one person or offer to connect one candidate.`,
+    3: `Write line 3 only. Max ${Math.min(lineBudget, remainingBudget)} words. Must include the number ${input.candidateCount}. Example shape: "We can connect you with ${input.candidateCount} candidates with backgrounds like that." Do not reference one person.`,
+    4: `Write line 4 only. Max ${Math.min(lineBudget, remainingBudget)} words. Ask what they are hiring for or what roles are hard to fill. End with ?.`
   };
 
   const openai = getOpenAI();
@@ -143,13 +150,14 @@ async function writeLine(
     () =>
       openai.chat.completions.create({
         model: DEFAULT_CHAT_MODEL,
-        temperature: 0.8,
+        temperature: 0.65,
         response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
             content: `You write one line at a time for construction recruiting cold emails.
 Tone example:\n${EXAMPLE}
+Keep the full email under ${MAX_TOTAL_WORDS} words total across 4 lines.
 Never use dollar signs, spam words, or symbols.
 Never say we have one candidate or will connect them to one specific person.
 The teaser is a profile type label, not a person to introduce.
@@ -159,7 +167,9 @@ Return ONLY JSON: {"line":"..."}`
             role: "user",
             content: [
               buildContext(input),
-              priorLines.length ? `Prior lines:\n${priorLines.join("\n")}` : "",
+              priorLines.length
+                ? `Prior lines (${usedWords} words used, ${remainingBudget} words left for remaining lines):\n${priorLines.join("\n")}`
+                : "",
               prompts[lineNumber],
               fixNotes.length ? `Fix:\n${fixNotes.join("\n")}` : ""
             ]
@@ -185,7 +195,7 @@ export async function generateGcColdEmailV2(
   input: GcScriptInput,
   opts: { maxRewrites?: number; seedFeedback?: string[] } = {}
 ): Promise<GcScriptOutput> {
-  const maxRewrites = opts.maxRewrites ?? 2;
+  const maxRewrites = opts.maxRewrites ?? 4;
   let best: string[] = [];
   let bestWords = 999;
   let bestIssues: string[] = ["failed"];
@@ -205,11 +215,11 @@ export async function generateGcColdEmailV2(
     for (const n of [1, 2, 3, 4] as const) {
       let line = "";
       let localFix = [...fixNotes];
-      for (let tries = 0; tries < 2; tries++) {
+      for (let tries = 0; tries < 3; tries++) {
         line = await writeLine(input, n, lines, localFix);
         const issues = lineIssues(line, n, input, [...lines, line]);
         if (issues.length === 0) break;
-        localFix = issues;
+        localFix = [...issues, `Keep line ${n} under ${MAX_BY_LINE[n - 1]} words`];
       }
       lines.push(line);
     }

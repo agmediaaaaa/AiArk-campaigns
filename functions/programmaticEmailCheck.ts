@@ -24,6 +24,14 @@ const WRONG_DIRECTION = [
   /hope this message finds you well/i
 ];
 
+const SINGLE_CANDIDATE = [
+  /\bwe have a \w+/i,
+  /\bwe have one\b/i,
+  /\bi have a \w+ who\b/i,
+  /\bconnect you with (that|this|the) (person|candidate|profile|pm|superintendent)\b/i,
+  /\bintroduce you to (that|this|the|one)\b/i
+];
+
 export function programmaticEmailCheck(
   html: string,
   firstName: string,
@@ -60,6 +68,9 @@ export function programmaticEmailCheck(
   }
 
   if (/[!$]/.test(plain)) issues.push("No dollar signs or symbol spam");
+  if (SINGLE_CANDIDATE.some((p) => p.test(plain))) {
+    issues.push("Do not offer one specific candidate or the teaser person");
+  }
   if (!plain.includes(String(candidateCount))) {
     issues.push(`Must mention candidate count ${candidateCount}`);
   }
