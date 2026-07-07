@@ -35,6 +35,8 @@ type EspMode = "google-others" | "outlook" | "auto";
 type ProcessOptions = {
   espMode: EspMode;
   humanizerMode: HumanizerMode;
+  seedFeedback?: string[];
+  isRewritePass?: boolean;
   trykittCache?: Map<number, FindEmailResult>;
 };
 
@@ -279,7 +281,7 @@ async function processLead(
       talentType: construction.talentType,
       candidateCount
     },
-    { humanizerMode: opts.humanizerMode }
+    { humanizerMode: opts.humanizerMode, seedFeedback: opts.seedFeedback }
   );
 
   if (!coldEmail.humanizer.pass) {
@@ -297,7 +299,9 @@ async function processLead(
         last_name: lastName,
         company_name: companyName,
         detail:
-          coldEmail.humanizer.issues.join("; ") ||
+          [...coldEmail.humanizer.issues, ...(coldEmail.humanizer.rewriteGuidance ?? [])]
+            .filter(Boolean)
+            .join("; ") ||
           `score=${coldEmail.humanizer.score}`
       }
     };
@@ -447,13 +451,66 @@ async function run(): Promise<void> {
   const enriched: EnrichedLead[] = [];
   const removed: RemovedLead[] = [];
   const drops: Record<string, number> = {};
+  const rewriteFailedIndexes: Array<{ idx: number; detail: string }> = [];
 
-  for (const outcome of outcomes) {
+  for (let i = 0; i < outcomes.length; i++) {
+    const outcome = outcomes[i]!;
     if (outcome.kind === "enriched") {
       enriched.push(outcome.row);
     } else {
-      removed.push(outcome.row);
-      drops[outcome.row.reason] = (drops[outcome.row.reason] ?? 0) + 1;
+      if (outcome.row.reason === "humanizer_failed") {
+        rewriteFailedIndexes.push({ idx: i, detail: outcome.row.detail ?? "" });
+      } else {
+        removed.push(outcome.row);
+        drops[outcome.row.reason] = (drops[outcome.row.reason] ?? 0) + 1;
+      }
+    }
+  }
+
+  let autoRewriteRecovered = 0;
+  if (rewriteFailedIndexes.length > 0) {
+    console.log(
+      `[gc-campaign] auto-rewrite pass: retrying ${rewriteFailedIndexes.length} failed scripts with critique feedback`
+    );
+    const seedByIndex = new Map<number, string[]>();
+    for (const item of rewriteFailedIndexes) {
+      const seed = item.detail
+        .split(";")
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .slice(0, 6);
+      if (seed.length > 0) seedByIndex.set(item.idx, seed);
+    }
+
+    const rewriteOutcomes = await mapPool(rewriteFailedIndexes, concurrency, async ({ idx }) => {
+      const raw = leads[idx]!;
+      return processLead(raw, config, idx, leads.length, {
+        espMode,
+        humanizerMode,
+        trykittCache,
+        isRewritePass: true,
+        seedFeedback: seedByIndex.get(idx) ?? []
+      });
+    });
+
+    for (const rewrite of rewriteOutcomes) {
+      if (rewrite.kind === "enriched") {
+        enriched.push(rewrite.row);
+        autoRewriteRecovered++;
+      } else {
+        removed.push({
+          ...rewrite.row,
+          reason:
+            rewrite.row.reason === "humanizer_failed"
+              ? "humanizer_failed_after_rewrite"
+              : rewrite.row.reason
+        });
+        const key =
+          rewrite.row.reason === "humanizer_failed"
+            ? "humanizer_failed_after_rewrite"
+            : rewrite.row.reason;
+        drops[key] = (drops[key] ?? 0) + 1;
+      }
     }
   }
 
@@ -473,6 +530,10 @@ async function run(): Promise<void> {
     humanizer_pass: humanizerPass,
     humanizer_fail: enriched.length - humanizerPass,
     drops_by_reason: drops,
+    auto_rewrite: {
+      attempted: rewriteFailedIndexes.length,
+      recovered: autoRewriteRecovered
+    },
     esp_mode: espMode,
     humanizer_mode: humanizerMode,
     campaigns: config.campaigns

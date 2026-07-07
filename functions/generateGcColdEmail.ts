@@ -2,6 +2,7 @@ import { DEFAULT_CHAT_MODEL, getOpenAI, withRetry } from "../integrations/openai
 import { cleanText } from "./classifyMx.js";
 import {
   checkHumanEmail,
+  critiqueFailedEmail,
   countWords,
   htmlToPlain,
   type HumanizeCheckResult
@@ -195,12 +196,12 @@ async function generateLines(
 
 export async function generateGcColdEmail(
   input: GcColdEmailInput,
-  opts: { maxAttempts?: number; humanizerMode?: HumanizerMode } = {}
+  opts: { maxAttempts?: number; humanizerMode?: HumanizerMode; seedFeedback?: string[] } = {}
 ): Promise<GcColdEmailOutput> {
   const maxAttempts = opts.maxAttempts ?? 8;
   const humanizerMode = opts.humanizerMode ?? "strict";
   const candidateCount = input.candidateCount;
-  let issues: string[] = [];
+  let issues: string[] = (opts.seedFeedback ?? []).filter(Boolean);
   let lastHtml = "";
   let lastPlain = "";
   let lastCheck: HumanizeCheckResult = { pass: false, score: 0, issues: [] };
@@ -231,7 +232,8 @@ export async function generateGcColdEmail(
           attempts: attempt
         };
       }
-      issues = programmatic.issues;
+      const critique = await critiqueFailedEmail(plain, html, programmatic.issues);
+      issues = [...programmatic.issues, ...critique].slice(0, 8);
       continue;
     }
 
@@ -258,7 +260,16 @@ export async function generateGcColdEmail(
       };
     }
 
-    issues = check.issues.length > 0 ? check.issues : ["Failed human quality check"];
+    const critique = await critiqueFailedEmail(
+      plain,
+      html,
+      check.issues.length > 0 ? check.issues : ["Failed human quality check"]
+    );
+    lastCheck = { ...check, rewriteGuidance: critique };
+    issues = [...(check.issues.length > 0 ? check.issues : ["Failed human quality check"]), ...critique].slice(
+      0,
+      10
+    );
   }
 
   if (humanizerMode === "relaxed" && lastHtml) {

@@ -4,6 +4,7 @@ export type HumanizeCheckResult = {
   pass: boolean;
   score: number;
   issues: string[];
+  rewriteGuidance?: string[];
   raw?: string;
 };
 
@@ -32,6 +33,18 @@ ALLOWED (do NOT fail for these):
 - Slight informality
 
 score is 0-100. pass=true if score >= 65 OR all core checks above are clearly met.`;
+
+const CRITIQUE_SYSTEM = `You are a cold email rewrite critic.
+Given a failed email and failure issues, produce concise rewrite guidance.
+
+Return ONLY valid JSON:
+{"rewrite_guidance": ["...", "...", "..."]}
+
+Rules:
+- 3 to 6 items
+- Each item must be an imperative rewrite instruction
+- Focus on actionable fixes (wording, structure, CTA, tone)
+- No explanations or analysis paragraphs`;
 
 export async function checkHumanEmail(
   plainText: string,
@@ -83,6 +96,51 @@ export async function checkHumanEmail(
   }
 
   return { pass: false, score: 0, issues: ["humanizer checker error"] };
+}
+
+export async function critiqueFailedEmail(
+  plainText: string,
+  html: string,
+  issues: string[]
+): Promise<string[]> {
+  const seedIssues = issues.filter(Boolean);
+  try {
+    const openai = getOpenAI();
+    const out = await withRetry(
+      () =>
+        openai.chat.completions.create({
+          model: DEFAULT_CHAT_MODEL,
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: CRITIQUE_SYSTEM },
+            {
+              role: "user",
+              content: [
+                `Issues: ${seedIssues.join("; ") || "Failed quality check"}`,
+                `Plain text: ${plainText}`,
+                `HTML: ${html}`
+              ].join("\n\n")
+            }
+          ]
+        }),
+      { label: "openai.humanizeCritique" }
+    );
+
+    const raw = out.choices[0]?.message?.content?.trim() ?? "";
+    const parsed = JSON.parse(raw) as { rewrite_guidance?: string[] };
+    const guidance = Array.isArray(parsed.rewrite_guidance)
+      ? parsed.rewrite_guidance.map((x) => String(x).trim()).filter(Boolean)
+      : [];
+    if (guidance.length > 0) return guidance.slice(0, 6);
+  } catch (err) {
+    console.warn(`[humanizeEmailCheck] critique failed: ${(err as Error).message}`);
+  }
+
+  if (seedIssues.length > 0) {
+    return seedIssues.map((x) => `Fix: ${x}`).slice(0, 6);
+  }
+  return ["Fix the script to be shorter, human, and hiring-question focused."];
 }
 
 export function htmlToPlain(html: string): string {
