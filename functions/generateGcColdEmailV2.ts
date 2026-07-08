@@ -54,6 +54,17 @@ const SINGLE_CANDIDATE = [
   /\bintroduce you to (that|this|the|one)\b/i
 ];
 
+const GENERIC_LINE1 = [
+  /\bis active in\b/i,
+  /\bfocus(es|ing)? on\b/i,
+  /\bspecializes? in\b/i,
+  /\bhandles\b/i,
+  /\bmanages\b/i
+];
+
+const LINE1_PRESSURE_SIGNALS =
+  /\b(juggling|bottleneck|thin|backlog|turnover|schedule|delivery|staffing|pipeline|slips?|slowdowns?|capacity|coverage|coordination)\b/i;
+
 const EXAMPLE = `Mike, Smart Energy's insulation work around Detroit bottlenecks when field foremen fall behind mechanical schedules.
 People in our network with similar commercial insulation backgrounds have kept mission-critical jobs on schedule without slowing mechanical contractors.
 We are in touch with 8 candidates who would fit that kind of role.
@@ -83,6 +94,12 @@ function lineIssues(line: string, lineNumber: number, input: GcScriptInput, allL
   const first = cleanText(input.firstName);
 
   if (lineNumber === 1 && !line.startsWith(`${first},`)) issues.push("Line 1 must start with first name and comma");
+  if (lineNumber === 1 && GENERIC_LINE1.some((p) => p.test(line))) {
+    issues.push("Line 1 must avoid generic company descriptions");
+  }
+  if (lineNumber === 1 && !LINE1_PRESSURE_SIGNALS.test(line)) {
+    issues.push("Line 1 must mention a talent pressure, scheduling risk, or delivery trend");
+  }
   if (BANNED.some((p) => p.test(line))) issues.push("Remove banned phrasing or symbols");
   if (SINGLE_CANDIDATE.some((p) => p.test(line))) {
     issues.push("Do not reference one specific candidate or offer to connect to one person");
@@ -139,7 +156,7 @@ async function writeLine(
   const remainingBudget = Math.max(8, MAX_TOTAL_WORDS - usedWords);
 
   const prompts: Record<number, string> = {
-    1: `Write line 1 only. Max ${lineBudget} words. One short opener about their company work, project type, location, or size. Use only locations from the data. No compliments.`,
+    1: `Write line 1 only. Max ${lineBudget} words. Start with first name and comma, then describe a specific talent pressure or delivery risk (schedule slippage, bottleneck, backlog, trade coordination gap, turnover risk). Do NOT just describe the company. Use only locations from data. No compliments.`,
     2: `Write line 2 only. Max ${Math.min(lineBudget, remainingBudget)} words. Describe outcomes for candidate TYPES in our network that match the teaser profile. Use plural language like 'people in our network with similar backgrounds'. Never say we have one person or offer to connect one candidate.`,
     3: `Write line 3 only. Max ${Math.min(lineBudget, remainingBudget)} words. Must include the number ${input.candidateCount}. Example shape: "We can connect you with ${input.candidateCount} candidates with backgrounds like that." Do not reference one person.`,
     4: `Write line 4 only. Max ${Math.min(lineBudget, remainingBudget)} words. Ask what they are hiring for or what roles are hard to fill. End with ?.`
@@ -161,6 +178,7 @@ Keep the full email under ${MAX_TOTAL_WORDS} words total across 4 lines.
 Never use dollar signs, spam words, or symbols.
 Never say we have one candidate or will connect them to one specific person.
 The teaser is a profile type label, not a person to introduce.
+Line 1 must focus on a hiring/scheduling pressure, not a generic company description.
 Return ONLY JSON: {"line":"..."}`
           },
           {
