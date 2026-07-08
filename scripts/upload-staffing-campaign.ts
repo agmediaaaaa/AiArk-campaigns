@@ -306,6 +306,7 @@ async function processRow(
   opts: {
     priorCaches?: PriorCaches;
     plusvibeEmails?: Set<string>;
+    allowOutlook?: boolean;
   } = {}
 ): Promise<{ kind: "removed"; removed: RemovedLead } | { kind: "uploaded"; uploaded: UploadedLead; payload: PlusVibeLeadPayload }> {
   const firstName = salutationFirstName(raw);
@@ -367,12 +368,18 @@ async function processRow(
   }
 
   const mx = await resolveMx(raw, activeEmail);
+  const allowOutlook = !!opts.allowOutlook;
   if ("kind" in mx) {
-    return drop(mx.kind === "seg" ? "security_gateway" : "outlook_skipped", activeEmail, mx.mxData);
+    if (mx.kind === "seg") return drop("security_gateway", activeEmail, mx.mxData);
+    if (!allowOutlook) return drop("outlook_skipped", activeEmail, mx.mxData);
   }
-  if (mx.isSeg) return drop("security_gateway", activeEmail, mx.mxData);
-  if (mx.esp === "outlook") return drop("outlook_skipped", activeEmail, mx.mxData);
-  if (mx.esp !== "google" && mx.esp !== "others") return drop("esp_not_allowed", activeEmail, mx.esp);
+  if (!("kind" in mx)) {
+    if (mx.isSeg) return drop("security_gateway", activeEmail, mx.mxData);
+    if (mx.esp === "outlook" && !allowOutlook) return drop("outlook_skipped", activeEmail, mx.mxData);
+    if (mx.esp !== "google" && mx.esp !== "others" && !(allowOutlook && mx.esp === "outlook")) {
+      return drop("esp_not_allowed", activeEmail, mx.esp);
+    }
+  }
 
   let clientType = "";
   let talentType = "";
@@ -472,6 +479,7 @@ async function run(): Promise<void> {
     : [];
   const excludePlusvibe = hasFlag("--exclude-plusvibe");
   const plusvibeEmailsCsv = argValue("--plusvibe-emails-csv");
+  const allowOutlook = hasFlag("--allow-outlook");
 
   if (!process.env.SUPABASE_TABLE) process.env.SUPABASE_TABLE = "Lead Database";
 
@@ -604,7 +612,7 @@ async function run(): Promise<void> {
       openaiScripts,
       skipEnrich,
       trykittCache,
-      { priorCaches, plusvibeEmails }
+      { priorCaches, plusvibeEmails, allowOutlook }
     );
     if (outcome.kind === "uploaded") {
       if (isRewrite) rewriteCount++;
