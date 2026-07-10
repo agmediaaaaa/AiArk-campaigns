@@ -13,7 +13,8 @@
     "shards": "tsx scripts/run-parallel-shards.ts",
     "gc-campaign": "tsx scripts/run-gc-campaign.ts",
     "extract-retry": "tsx scripts/extract-retry-leads.ts",
-    "preview-gc": "tsx scripts/preview-gc-scripts.ts"
+    "preview-gc": "tsx scripts/preview-gc-scripts.ts",
+    "upload-sheets-supabase": "tsx scripts/upload-all-sheets-supabase.ts"
   },
   "engines": {
     "node": ">=20.0.0"
