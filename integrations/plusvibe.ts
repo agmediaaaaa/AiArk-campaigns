@@ -80,7 +80,11 @@ export async function fetchCampaignLeads(
             limit: pageSize
           }
         }),
-      { label: `plusvibe.fetchLeads page=${page}` }
+      {
+        label: `plusvibe.fetchLeads page=${page}`,
+        attempts: 6,
+        backoffMs: [3000, 6000, 12000, 20000, 30000, 45000]
+      }
     );
     const rows = Array.isArray(resp.data)
       ? resp.data
