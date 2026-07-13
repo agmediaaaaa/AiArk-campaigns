@@ -200,6 +200,88 @@ export function assembleColdEmailHtml(
   return `<div>${firstName}<br><br>${openingLine}<br><br>${teaser}<br><br>${cta}</div>`;
 }
 
+/** Two-part format: first name + observation + connect (no teaser). */
+export function assembleColdEmailHtmlNoTeaser(
+  firstName: string,
+  observation: string,
+  connectLine: string
+): string {
+  return `<div>${firstName}<br><br>${observation}<br><br>${connectLine}</div>`;
+}
+
+export function validateObservationLine(line: string, firstName: string): ValidationResult {
+  const errors: string[] = [];
+  const text = line.trim();
+  if (!text) errors.push("observation is empty");
+  if (text.length > 200) errors.push("observation too long");
+  for (const p of [...BANNED_ROBOTIC, ...BANNED_MARKETING]) {
+    if (p.test(text)) errors.push(`observation matches banned pattern: ${p}`);
+  }
+  if (firstName && text.toLowerCase().startsWith(firstName.toLowerCase())) {
+    errors.push("observation should not repeat first name");
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateConnectLine(line: string): ValidationResult {
+  const errors: string[] = [];
+  const text = line.trim();
+  if (!text) errors.push("connect line is empty");
+  const hasAccess =
+    /access to|opportunit|connect|intro|point you|companies in (this|the) space|fit your|aligned with your|your (mandate|portfolio|focus|criteria)/i.test(
+      text
+    );
+  if (!hasAccess) errors.push("connect line lacks opportunity/access framing");
+  for (const p of BANNED_POSSESSION) {
+    if (p.test(text)) errors.push(`connect line matches possession pattern: ${p}`);
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateColdEmailHtmlNoTeaser(html: string, firstName: string): ValidationResult {
+  const errors: string[] = [];
+  if (!html.startsWith("<div>") || !html.endsWith("</div>")) {
+    errors.push("HTML must start with <div> and end with </div>");
+  }
+  if (/<(?!div|br\s*\/?>|\/div)[a-z]/i.test(html)) {
+    errors.push("HTML contains tags other than div and br");
+  }
+
+  const bodyText = html
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/?div>/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!bodyText.toLowerCase().startsWith(firstName.toLowerCase())) {
+    errors.push("email must start with first name");
+  }
+  if (BANNED_SALUTATIONS.test(bodyText)) {
+    errors.push("email contains salutation");
+  }
+  for (const p of [...BANNED_ROBOTIC, ...BANNED_POSSESSION, ...BANNED_SIGNATURE, ...SPAM_WORDS]) {
+    if (p.test(bodyText)) errors.push(`email matches banned pattern: ${p}`);
+  }
+
+  const parts = html
+    .replace(/^<div>/, "")
+    .replace(/<\/div>$/, "")
+    .split(/<br\s*\/?>/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  if (parts.length !== 3) {
+    errors.push("email should have first name + observation + connect line only (no teaser)");
+  }
+
+  const observation = parts[1] ?? "";
+  const connect = parts[2] ?? "";
+  errors.push(...validateObservationLine(observation, firstName).errors);
+  errors.push(...validateConnectLine(connect).errors);
+
+  return { ok: errors.length === 0, errors };
+}
+
 function countTeaserDimensions(text: string): number {
   let count = 0;
   if (INDUSTRY_PATTERNS.some((p) => p.test(text))) count++;
