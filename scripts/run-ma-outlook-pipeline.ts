@@ -28,13 +28,40 @@ function isOutlookEsp(esp: string, mx: string): boolean {
   return esp.toLowerCase() === "outlook";
 }
 
+async function loadRows(inputArg: string): Promise<Record<string, string>[]> {
+  const paths = inputArg
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const byEmail = new Map<string, Record<string, string>>();
+  for (const p of paths) {
+    const rows = parse(fs.readFileSync(p, "utf-8"), {
+      columns: (h: string[]) => h.map((x) => x.trim()),
+      skip_empty_lines: true,
+      bom: true,
+      relax_column_count: true
+    }) as Record<string, string>[];
+    console.log(`[outlook] loaded ${rows.length} rows from ${p}`);
+    for (const row of rows) {
+      const r = normalizeSheetRow(row);
+      const email = (r.email_business || "").toLowerCase();
+      if (email) byEmail.set(email, row);
+      else byEmail.set(`__noemail_${byEmail.size}`, row);
+    }
+  }
+  return [...byEmail.values()];
+}
+
 async function run(): Promise<void> {
-  const input = argValue("--input") ?? "data/ma_v2_jun26.csv";
+  const input =
+    argValue("--input") ?? "data/ma_v2_jun26.csv,data/ma_leads_full.csv";
   const outDir = path.resolve(argValue("--out-dir") ?? `ma_outlook_run_${Date.now()}`);
   const campaignId = argValue("--campaign") ?? "6a3d1a5c000972b86ec4f15a";
   const workspaceId = argValue("--workspace-id") ?? process.env.PLUSVIBE_WORKSPACE_ID ?? "";
-  const concurrency = Math.max(1, Number(argValue("--concurrency") ?? "5"));
+  const concurrency = Math.max(1, Number(argValue("--concurrency") ?? "6"));
+  const uploadConcurrency = Math.max(1, Number(argValue("--upload-concurrency") ?? "4"));
   const skipUpload = process.argv.includes("--skip-upload");
+  const t0 = Date.now();
 
   if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY required");
   if (!skipUpload && (!process.env.PLUSVIBE_KEY || !workspaceId)) {
@@ -44,12 +71,8 @@ async function run(): Promise<void> {
   const productDescription =
     "We connect advisory firms with companies that match their ideal client profile — vague intros only, no live deals held.";
 
-  const rows = parse(fs.readFileSync(input, "utf-8"), {
-    columns: (h: string[]) => h.map((x) => x.trim()),
-    skip_empty_lines: true,
-    bom: true,
-    relax_column_count: true
-  }) as Record<string, string>[];
+  const rows = await loadRows(input);
+  console.log(`[outlook] unique rows after merge: ${rows.length}`);
 
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -137,16 +160,44 @@ async function run(): Promise<void> {
       custom_variables: { custom_cold_email: result.cold_email_html }
     }));
 
-    let ok = 0;
-    let failed = 0;
+    const batches: PlusVibeLeadPayload[][] = [];
     const batchSize = 10;
     for (let i = 0; i < payloads.length; i += batchSize) {
-      const batch = payloads.slice(i, i + batchSize);
+      batches.push(payloads.slice(i, i + batchSize));
+    }
+
+    let ok = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    await mapPool(batches, uploadConcurrency, async (batch, idx) => {
       const res = await uploadLeadsBatch(batch, { workspaceId, campaignId });
       if (res.ok) ok += batch.length;
-      else failed += batch.length;
-    }
+      else {
+        failed += batch.length;
+        if (errors.length < 20) errors.push(`batch ${idx + 1}: ${res.error}`);
+      }
+    });
     console.log(`[outlook] upload campaign=${campaignId}: ok=${ok} failed=${failed}`);
+
+    const summary = {
+      input_rows: rows.length,
+      outlook_eligible: gated.length,
+      enriched: enriched.length,
+      upload: { ok, failed, errors, campaign_id: campaignId, workspace_id: workspaceId },
+      elapsed_seconds: ((Date.now() - t0) / 1000).toFixed(1),
+      out_dir: outDir
+    };
+    fs.writeFileSync(path.join(outDir, "run_summary.json"), JSON.stringify(summary, null, 2));
+  } else {
+    const summary = {
+      input_rows: rows.length,
+      outlook_eligible: gated.length,
+      enriched: enriched.length,
+      upload: "skipped",
+      elapsed_seconds: ((Date.now() - t0) / 1000).toFixed(1),
+      out_dir: outDir
+    };
+    fs.writeFileSync(path.join(outDir, "run_summary.json"), JSON.stringify(summary, null, 2));
   }
 
   console.log(`[outlook] artifacts → ${outDir}`);
