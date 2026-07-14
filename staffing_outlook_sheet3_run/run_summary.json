@@ -1,0 +1,24 @@
+{
+  "timestamp": "2026-07-14T13:14:49.178Z",
+  "input": "data/staffing_outlook_sheet3.csv",
+  "start": 0,
+  "limit": 891,
+  "workspace_id": "69a5b2169433a45c6f6d7d1c",
+  "campaign_id": "6a4e04fdfd24ec03d6bec6c0",
+  "total_in_file": 891,
+  "batch_rows": 891,
+  "uploaded": 854,
+  "removed": 37,
+  "plusvibe_ok": 854,
+  "plusvibe_failed": 0,
+  "rewrite_from_cache": 0,
+  "full_pipeline": 854,
+  "prior_runs": [],
+  "plusvibe_excluded": 2707,
+  "supabase_succeeded": 854,
+  "supabase_failed": 0,
+  "supabase_errors": [],
+  "removed_by_reason": {
+    "already_in_plusvibe": 37
+  }
+}
