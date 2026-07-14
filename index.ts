@@ -6,23 +6,26 @@ import { z } from "zod";
 
 import { runPipeline } from "./pipelines/main.js";
 
-const REQUIRED_KEYS = [
-  "OPENAI_API_KEY",
-  "TRYKITT_API_KEY",
-  "MILLIONVERIFIER_API_KEY",
-  "PLUSVIBE_KEY",
-  "SUPABASE_URL",
-  "SUPABASE_KEY"
-] as const;
+const optionalNonEmpty = z
+  .string()
+  .optional()
+  .transform((v) => (v?.trim() ? v.trim() : undefined));
 
 const EnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
   TRYKITT_API_KEY: z.string().min(1, "TRYKITT_API_KEY is required"),
   MILLIONVERIFIER_API_KEY: z.string().min(1, "MILLIONVERIFIER_API_KEY is required"),
   PLUSVIBE_KEY: z.string().min(1, "PLUSVIBE_KEY is required"),
-  SUPABASE_URL: z.string().url("SUPABASE_URL must be a URL"),
-  SUPABASE_KEY: z.string().min(1, "SUPABASE_KEY is required")
+  SUPABASE_URL: optionalNonEmpty.pipe(z.string().url("SUPABASE_URL must be a URL").optional()),
+  SUPABASE_KEY: optionalNonEmpty
 });
+
+const REQUIRED_KEYS = [
+  "OPENAI_API_KEY",
+  "TRYKITT_API_KEY",
+  "MILLIONVERIFIER_API_KEY",
+  "PLUSVIBE_KEY"
+] as const;
 
 type CliArgs = {
   config: string;
@@ -121,6 +124,13 @@ function startupGate(args: CliArgs): void {
       ].join("\n")
     );
     process.exit(1);
+  }
+
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+    console.warn(
+      "[lead-engine] SUPABASE_URL/SUPABASE_KEY not set; Supabase lookup and upsert will be skipped."
+    );
+    process.env.SKIP_SUPABASE = "true";
   }
 
   if (!fs.existsSync(args.config)) {

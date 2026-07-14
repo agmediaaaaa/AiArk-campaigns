@@ -3,6 +3,7 @@ import {
   findEmailsViaTryKittPool,
   type TryKittPoolItem
 } from "../integrations/trykitt.js";
+import { lookupLeadEmail } from "../integrations/supabase.js";
 import { cleanText } from "./classifyMx.js";
 import { resolveTryKittDomain } from "./classifyMx.js";
 
@@ -19,6 +20,7 @@ export type FindEmailInput = {
 export type FindEmailResult = {
   email: string | null;
   domainUsed: string;
+  source?: "trykit" | "supabase";
 };
 
 export function resolveFindEmailDomain(input: FindEmailInput): string {
@@ -29,6 +31,17 @@ export async function findEmail(input: FindEmailInput): Promise<FindEmailResult>
   const firstName = cleanText(input.firstName);
   const lastName = cleanText(input.lastName);
   const domain = resolveFindEmailDomain(input);
+
+  const supabaseEmail = await lookupLeadEmail({
+    firstName,
+    lastName,
+    companyName: input.companyName,
+    companyWebsite: input.companyWebsite,
+    linkedin: input.personLinkedin
+  });
+  if (supabaseEmail) {
+    return { email: supabaseEmail, domainUsed: domain, source: "supabase" };
+  }
 
   if (!firstName || !lastName || !domain) {
     return { email: null, domainUsed: domain };
@@ -42,7 +55,7 @@ export async function findEmail(input: FindEmailInput): Promise<FindEmailResult>
     companyName: cleanText(input.companyName) || undefined,
     linkedinUrl: personLinkedin || undefined
   });
-  return { email: result.email, domainUsed: domain };
+  return { email: result.email, domainUsed: domain, source: "trykit" };
 }
 
 export type BatchFindEmailItem = FindEmailInput & { key: string | number };
@@ -76,7 +89,11 @@ export async function findEmailsBatch(
   for (const item of items) {
     const domainUsed = domainByKey.get(item.key) ?? "";
     const hit = raw.get(item.key);
-    mapped.set(item.key, { email: hit?.email ?? null, domainUsed });
+    mapped.set(item.key, {
+      email: hit?.email ?? null,
+      domainUsed,
+      source: hit?.email ? "trykit" : undefined
+    });
   }
   return mapped;
 }

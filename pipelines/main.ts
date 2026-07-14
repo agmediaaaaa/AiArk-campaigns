@@ -14,11 +14,13 @@ import {
 import { normalizeCompany } from "../functions/normalizeCompany.js";
 import { classifyCompanyType } from "../functions/classifyCompanyType.js";
 import { enrichFacilityAndTalent } from "../functions/enrichFacilityAndTalent.js";
+import { generateColdEmail } from "../functions/generateColdEmail.js";
 import { findEmail, findEmailsBatch, type FindEmailResult } from "../functions/findEmail.js";
+import { isCatchAllDomainSetting, normalizeDomainSetting } from "../functions/normalizeDomainSetting.js";
 import { verifyEmail } from "../functions/verifyEmail.js";
 import { routeCampaign, type CampaignsConfig } from "../functions/routeCampaign.js";
 import { uploadLead, type PlusVibeLeadPayload } from "../integrations/plusvibe.js";
-import { upsertLeads, type SupabaseLeadRow } from "../integrations/supabase.js";
+import { upsertLeads, lookupLeadEmail, type SupabaseLeadRow } from "../integrations/supabase.js";
 import { mapPool } from "../functions/mapPool.js";
 
 export type FinanceConfig = {
@@ -27,6 +29,7 @@ export type FinanceConfig = {
   product: { name?: string; description: string };
   campaigns: CampaignsConfig;
   limits?: { openaiConcurrency?: number; uploadConcurrency?: number };
+  filters?: { espAllowlist?: Array<"google" | "outlook" | "others" | "empty"> };
 };
 
 export type PipelineOptions = {
@@ -51,7 +54,9 @@ type RemovedLead = {
     | "no_email_found"
     | "email_unverified"
     | "unknown_domain_setting"
-    | "catchall_skipped";
+    | "catchall_skipped"
+    | "outlook_skipped"
+    | "esp_not_allowed";
   email: string;
   domain: string;
   raw: LeadRow;
@@ -61,7 +66,7 @@ type RemovedLead = {
 type EnrichedLead = {
   raw: LeadRow;
   active_email: string;
-  email_source: "csv" | "trykit";
+  email_source: "csv" | "trykit" | "supabase";
   email_verification_status: string | null;
   esp_classification: string;
   domain_settings: string;
@@ -69,6 +74,7 @@ type EnrichedLead = {
   company_type: string;
   facility_type: string;
   talent_type: string;
+  cold_email: string;
   plusvibe_workspace_id: string;
   plusvibe_campaign_id: string;
   upload_ok: boolean;
@@ -130,11 +136,16 @@ function mergeCounts(target: StageCounts, delta: Partial<StageCounts>): void {
 
 function leadNeedsTryKitt(raw: LeadRow, emptyEmailOnly?: boolean): boolean {
   if (cleanText(raw.email_business)) return false;
-  const domainSettingRaw = cleanText(raw.domain_settings).toLowerCase().replace(/[^a-z]/g, "");
-  if (domainSettingRaw === "catchall") return false;
+  if (isCatchAllDomainSetting(raw.domain_settings)) return false;
   if (emptyEmailOnly && cleanText(raw.email_business)) return false;
-  const trykittEligible = domainSettingRaw === "";
-  return domainSettingRaw === "smtp" || trykittEligible;
+  const mapped = normalizeDomainSetting(raw.domain_settings);
+  return mapped === "smtp" || mapped === "unknown";
+}
+
+function espAllowed(esp: string, config: FinanceConfig): boolean {
+  const allow = config.filters?.espAllowlist;
+  if (!allow?.length) return true;
+  return allow.includes(esp as "google" | "outlook" | "others" | "empty");
 }
 
 async function processLeadRow(
@@ -158,11 +169,11 @@ async function processLeadRow(
   const emailBusiness = cleanText(raw.email_business);
   const companyWebsite = cleanText(raw.company_website);
   const domain = resolveLeadDomain(emailBusiness, companyWebsite);
-  const domainSettingRaw = cleanText(raw.domain_settings).toLowerCase().replace(/[^a-z]/g, "");
+  const domainMapped = normalizeDomainSetting(raw.domain_settings);
 
   const emptyEmailMode = rowOpts.emptyEmailOnly === true;
 
-  if (domainSettingRaw === "catchall") {
+  if (isCatchAllDomainSetting(raw.domain_settings)) {
     return drop("catchall_skipped", { catchall_skipped: 1 }, {
       reason: "catchall_skipped",
       email: emailBusiness,
@@ -182,9 +193,8 @@ async function processLeadRow(
     });
   }
 
-  // Blank domain_settings + missing Email Business → TryKitt path (treat as SMTP at route).
-  const trykittEligible = !emailBusiness && domainSettingRaw === "";
-  const domainEligible = domainSettingRaw === "smtp" || trykittEligible;
+  const trykittEligible = !emailBusiness && domainMapped === "unknown";
+  const domainEligible = domainMapped === "smtp" || trykittEligible;
   if (!domainEligible) {
     return drop("unknown_domain_setting", {}, {
       reason: "unknown_domain_setting",
@@ -215,26 +225,49 @@ async function processLeadRow(
     });
   }
 
+  if (!espAllowed(mx.esp, config)) {
+    const reason = mx.esp === "outlook" ? "outlook_skipped" : "esp_not_allowed";
+    return drop(reason, base, {
+      reason,
+      email: emailBusiness,
+      domain,
+      raw,
+      detail: mx.esp
+    });
+  }
+
   let activeEmail = "";
-  let emailSource: "csv" | "trykit" = "csv";
+  let emailSource: "csv" | "trykit" | "supabase" = "csv";
   let verificationStatus: string | null = null;
 
   if (emailBusiness) {
     activeEmail = emailBusiness.toLowerCase();
     emailSource = "csv";
   } else {
-    const cached =
-      rowOpts.leadIndex !== undefined ? rowOpts.trykittCache?.get(rowOpts.leadIndex) : undefined;
-    const found =
-      cached ??
-      (await findEmail({
-        firstName: raw.first_name,
-        lastName: raw.last_name,
-        companyName: raw.company_name,
-        companyWebsite: raw.company_website,
-        companyLinkedin: raw.company_linkedin,
-        personLinkedin: raw.linkedin
-      }));
+    let found: FindEmailResult | undefined;
+    const supabaseEmail = await lookupLeadEmail({
+      firstName: raw.first_name,
+      lastName: raw.last_name,
+      companyName: raw.company_name,
+      companyWebsite: raw.company_website,
+      linkedin: raw.linkedin
+    });
+    if (supabaseEmail) {
+      found = { email: supabaseEmail, domainUsed: domain, source: "supabase" };
+    } else {
+      const cached =
+        rowOpts.leadIndex !== undefined ? rowOpts.trykittCache?.get(rowOpts.leadIndex) : undefined;
+      found =
+        cached ??
+        (await findEmail({
+          firstName: raw.first_name,
+          lastName: raw.last_name,
+          companyName: raw.company_name,
+          companyWebsite: raw.company_website,
+          companyLinkedin: raw.company_linkedin,
+          personLinkedin: raw.linkedin
+        }));
+    }
     if (!found.email) {
       return drop("no_email_found", base, {
         reason: "no_email_found",
@@ -255,7 +288,7 @@ async function processLeadRow(
       });
     }
     activeEmail = found.email;
-    emailSource = "trykit";
+    emailSource = found.source === "supabase" ? "supabase" : "trykit";
   }
 
   const companyNameNormalized = await normalizeCompany(raw.company_name);
@@ -271,8 +304,22 @@ async function processLeadRow(
     title: raw.title
   });
 
+  const coldEmail = await generateColdEmail({
+    firstName: raw.first_name,
+    companyName: raw.company_name,
+    companyNameNormalized,
+    title: raw.title,
+    city: raw.city,
+    state: raw.state,
+    companySize: raw.company_size,
+    companyProductsServices: raw.company_products_services,
+    companyDescription: raw.company_description,
+    facilityType: facilityTalent.facilityType,
+    talentType: facilityTalent.talentType
+  });
+
   const route = routeCampaign(raw.domain_settings, config.campaigns, {
-    treatEmptyAsSmtp: trykittEligible || emptyEmailMode || domainSettingRaw === ""
+    treatEmptyAsSmtp: trykittEligible || emptyEmailMode || domainMapped === "unknown"
   });
   if (!route.ok) {
     return drop("unknown_domain_setting", base, {
@@ -295,8 +342,24 @@ async function processLeadRow(
     city: cleanText(raw.city) || undefined,
     country: cleanText(raw.country) || undefined,
     custom_variables: {
+      custom_facility_type: facilityTalent.facilityType || "",
       custom_talent_type: facilityTalent.talentType || "",
-      custom_facility_type: facilityTalent.facilityType || ""
+      custom_cold_email: coldEmail || "",
+      facility_type: facilityTalent.facilityType || "",
+      talent_type: facilityTalent.talentType || "",
+      cold_email: coldEmail || "",
+      first_name: cleanText(raw.first_name) || "",
+      last_name: cleanText(raw.last_name) || "",
+      linkedin: cleanText(raw.linkedin) || "",
+      company_name: companyNameNormalized || cleanText(raw.company_name) || "",
+      company_website: cleanText(raw.company_website) || "",
+      company_linkedin: cleanText(raw.company_linkedin) || "",
+      title: cleanText(raw.title) || "",
+      city: cleanText(raw.city) || "",
+      state: cleanText(raw.state) || "",
+      country: cleanText(raw.country) || "",
+      company_size: cleanText(raw.company_size) || "",
+      company_industry: cleanText(raw.company_industry) || ""
     }
   };
 
@@ -322,6 +385,7 @@ async function processLeadRow(
       company_type: companyType,
       facility_type: facilityTalent.facilityType,
       talent_type: facilityTalent.talentType,
+      cold_email: coldEmail,
       plusvibe_workspace_id: route.target.workspaceId,
       plusvibe_campaign_id: route.target.campaignId,
       upload_ok: upload.ok,
@@ -419,8 +483,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
       security_gateway: 0,
       no_email_found: 0,
       email_unverified: 0,
-        unknown_domain_setting: 0,
-        catchall_skipped: 0
+      unknown_domain_setting: 0,
+      catchall_skipped: 0,
+      outlook_skipped: 0,
+      esp_not_allowed: 0
     }
   };
 
@@ -547,8 +613,16 @@ function toSupabaseRow(e: EnrichedLead, _icp: ICP, _competitors: Competitor[]): 
     "First Name": cleanText(r.first_name) || null,
     "Last Name": cleanText(r.last_name) || null,
     Linkedin: cleanText(r.linkedin) || null,
-    "Company Name": cleanText(r.company_name) || null,
-    Website: cleanText(r.company_website) || null
+    "Company Name": e.company_name_normalized || cleanText(r.company_name) || null,
+    Website: cleanText(r.company_website) || null,
+    Title: cleanText(r.title) || null,
+    "Facility Type": e.facility_type || null,
+    "Talent Type": e.talent_type || null,
+    "Cold Email": e.cold_email || null,
+    "Company LinkedIn": cleanText(r.company_linkedin) || null,
+    City: cleanText(r.city) || null,
+    State: cleanText(r.state) || null,
+    Country: cleanText(r.country) || null
   };
 }
 
@@ -591,6 +665,7 @@ function writeArtifacts(args: {
     company_type: e.company_type,
     facility_type: e.facility_type,
     talent_type: e.talent_type,
+    cold_email: e.cold_email,
     esp_classification: e.esp_classification,
     domain_settings: e.domain_settings,
     email_source: e.email_source,
