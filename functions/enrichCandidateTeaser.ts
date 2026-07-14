@@ -11,7 +11,7 @@ export type TeaserInput = {
 };
 
 export async function enrichCandidateTeaser(input: TeaserInput): Promise<string> {
-  const talent = cleanText(input.talentType).split(",")[0] || "Project Managers";
+  const talent = cleanText(input.talentType).split(",")[0] || "Superintendents";
   const location = [cleanText(input.city), cleanText(input.state)].filter(Boolean).join(", ");
 
   try {
@@ -25,18 +25,19 @@ export async function enrichCandidateTeaser(input: TeaserInput): Promise<string>
             {
               role: "system",
               content:
-                "Return one blind candidate teaser label only. 8-10 words. No names. No quotes. Must mention role type and project/company context. Avoid generic 'project managers' unless truly best fit."
+                "Return one blind candidate teaser label only. 8-10 words. No names. No quotes. Must mention the provided talent role and project/company context. Do not invent Project Managers when another role is provided."
             },
             {
               role: "user",
               content: [
                 `Company Type: ${cleanText(input.companyType)}`,
-                `Talent Needed: ${cleanText(input.talentType)}`,
+                `Talent Needed (prefer first label): ${cleanText(input.talentType)}`,
                 `Location: ${location}`,
                 `Services: ${cleanText(input.companyProductsServices)}`,
                 `Description: ${cleanText(input.companyDescription)}`,
                 "",
-                "Example: Michigan superintendent, commercial TI and ground-up builds"
+                "Example: Michigan superintendent, commercial TI and ground-up builds",
+                "Example: Tampa estimator, specialty restoration and roofing bids"
               ].join("\n")
             }
           ]
