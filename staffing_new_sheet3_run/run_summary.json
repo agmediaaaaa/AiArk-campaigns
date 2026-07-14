@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-07-14T13:09:28.788Z",
+  "input": "data/staffing_leads_new_sheet3.csv",
+  "start": 0,
+  "limit": 1652,
+  "workspace_id": "69a5b2169433a45c6f6d7d1c",
+  "campaign_id": "6a4b5e9a8551c2fad96fa22b",
+  "total_in_file": 1652,
+  "batch_rows": 1652,
+  "uploaded": 504,
+  "removed": 1148,
+  "plusvibe_ok": 504,
+  "plusvibe_failed": 0,
+  "rewrite_from_cache": 0,
+  "full_pipeline": 504,
+  "prior_runs": [],
+  "plusvibe_excluded": 2054,
+  "supabase_succeeded": 504,
+  "supabase_failed": 0,
+  "supabase_errors": [],
+  "removed_by_reason": {
+    "no_email_found": 971,
+    "already_in_plusvibe": 31,
+    "security_gateway": 124,
+    "outlook_skipped": 22
+  }
+}
