@@ -1,0 +1,27 @@
+{
+  "vertical": "saas_founders",
+  "enrichmentProfile": "saas",
+  "routingMode": "esp",
+  "company": {
+    "name": "Zillion Systems",
+    "description": "We help SaaS founders fill their calendar with qualified demos and warm intros to buyers who match their ICP. Outbound copy must never name the vendor — speak to outcomes, identified fit accounts, and the plan to drive signups or demos."
+  },
+  "product": {
+    "name": "GTM intros and demos",
+    "description": "We identify lookalike accounts in the founder's ICP, open doors with decision-makers, and deliver booked demos or product signups depending on their motion. Never mention vendor name in customer-facing copy."
+  },
+  "campaigns": {
+    "googleAndOthers": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a5e1a1c88017d389e910888"
+    },
+    "outlook": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a5e1a2b33b119b01adae763"
+    }
+  },
+  "limits": {
+    "openaiConcurrency": 5,
+    "uploadConcurrency": 3
+  }
+}

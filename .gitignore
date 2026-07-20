@@ -17,6 +17,9 @@ run_outputs_*/
 shard_logs_*/
 outputs/
 
+# downloaded lead lists (PII)
+data/leads_sheet2.csv
+
 # logs
 *.log
 npm-debug.log*

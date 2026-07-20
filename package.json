@@ -10,7 +10,9 @@
     "dev": "tsx watch index.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "shards": "tsx scripts/run-parallel-shards.ts"
+    "shards": "tsx scripts/run-parallel-shards.ts",
+    "fetch:sheet2": "tsx scripts/fetch-sheet2.ts",
+    "pilot:saas": "tsx scripts/enrich-saas-pilot.ts"
   },
   "engines": {
     "node": ">=20.0.0"
