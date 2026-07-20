@@ -83,6 +83,7 @@ type EnrichedLead = {
   lead_icp: string;
   value_prop: string;
   cold_email_body: string;
+  identified_fit_count: number;
   esp_campaign_bucket: string;
   plusvibe_workspace_id: string;
   plusvibe_campaign_id: string;
@@ -318,6 +319,7 @@ async function processLeadRow(
   let leadIcp = "";
   let valueProp = "";
   let coldEmailBody = "";
+  let identifiedFitCount = 0;
 
   if (isSaas) {
     const saas = await enrichSaasOutreach({
@@ -339,6 +341,7 @@ async function processLeadRow(
     leadIcp = saas.lead_icp;
     valueProp = saas.value_prop;
     coldEmailBody = saas.cold_email_body;
+    identifiedFitCount = saas.identified_fit_count;
   } else {
     const facilityTalent = await enrichFacilityAndTalent({
       companyNameNormalized,
@@ -393,7 +396,8 @@ async function processLeadRow(
         custom_primary_cta: primaryCta,
         custom_lead_icp: leadIcp,
         custom_value_prop: valueProp,
-        custom_cold_email_body: coldEmailBody
+        custom_cold_email_body: coldEmailBody,
+        custom_identified_fit_count: String(identifiedFitCount)
       }
     : {
         custom_talent_type: talentType,
@@ -441,6 +445,7 @@ async function processLeadRow(
       lead_icp: leadIcp,
       value_prop: valueProp,
       cold_email_body: coldEmailBody,
+      identified_fit_count: identifiedFitCount,
       esp_campaign_bucket: espBucket,
       plusvibe_workspace_id: uploadTarget.workspaceId,
       plusvibe_campaign_id: uploadTarget.campaignId,
@@ -751,6 +756,7 @@ function writeArtifacts(args: {
     lead_icp: e.lead_icp,
     value_prop: e.value_prop,
     cold_email_body: e.cold_email_body,
+    identified_fit_count: String(e.identified_fit_count),
     esp_campaign_bucket: e.esp_campaign_bucket,
     esp_classification: e.esp_classification,
     domain_settings: e.domain_settings,

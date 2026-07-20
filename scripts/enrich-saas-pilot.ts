@@ -83,7 +83,8 @@ async function run(): Promise<void> {
       primary_cta: enriched.primary_cta,
       lead_icp: enriched.lead_icp,
       value_prop: enriched.value_prop,
-      cold_email_body: enriched.cold_email_body
+      cold_email_body: enriched.cold_email_body,
+      identified_fit_count: String(enriched.identified_fit_count)
     });
   }
 
