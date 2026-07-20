@@ -244,17 +244,17 @@ function hasSpam(text: string): boolean {
   return SPAM_WORDS.some((w) => lower.includes(w));
 }
 
-function validateResult(r: SaasOutreachResult): { ok: boolean; reason?: string } {
+function validateResult(r: Partial<SaasOutreachResult>): { ok: boolean; reason?: string } {
   if (!r.cold_email_body?.startsWith("<div></div>{{first_name}},<br></br>")) {
     return { ok: false, reason: "cold_email format" };
   }
   if (wordCount(stripHtmlForCount(r.cold_email_body)) > 60) {
     return { ok: false, reason: "cold_email word count" };
   }
-  if (wordCount(r.value_prop) > 60) {
+  if (r.value_prop && wordCount(r.value_prop) > 60) {
     return { ok: false, reason: "value_prop word count" };
   }
-  if (hasSpam(r.value_prop) || hasSpam(stripHtmlForCount(r.cold_email_body))) {
+  if (hasSpam(r.value_prop ?? "") || hasSpam(stripHtmlForCount(r.cold_email_body))) {
     return { ok: false, reason: "spam word" };
   }
   return { ok: true };
