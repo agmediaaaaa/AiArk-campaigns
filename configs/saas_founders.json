@@ -1,0 +1,27 @@
+{
+  "vertical": "saas_founders",
+  "enrichmentProfile": "saas",
+  "routingMode": "esp",
+  "company": {
+    "name": "AI Ark",
+    "description": "AI Ark helps SaaS founders run targeted outbound that turns into qualified demos and product signups."
+  },
+  "product": {
+    "name": "AI Ark Campaigns",
+    "description": "Per-lead enriched outbound for SaaS founders — motion-aware copy that drives demos or signups based on how they sell."
+  },
+  "campaigns": {
+    "googleAndOthers": {
+      "workspaceId": "68cc548e33b6c342f85bd2d9",
+      "campaignId": "6a5e1a1c88017d389e910888"
+    },
+    "outlook": {
+      "workspaceId": "68cc548e33b6c342f85bd2d9",
+      "campaignId": "6a5e1a2b33b119b01adae763"
+    }
+  },
+  "limits": {
+    "openaiConcurrency": 5,
+    "uploadConcurrency": 3
+  }
+}

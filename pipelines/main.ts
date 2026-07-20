@@ -14,18 +14,26 @@ import {
 import { normalizeCompany } from "../functions/normalizeCompany.js";
 import { classifyCompanyType } from "../functions/classifyCompanyType.js";
 import { enrichFacilityAndTalent } from "../functions/enrichFacilityAndTalent.js";
+import { enrichSaasOutreach } from "../functions/enrichSaasOutreach.js";
 import { findEmail, findEmailsBatch, type FindEmailResult } from "../functions/findEmail.js";
 import { verifyEmail } from "../functions/verifyEmail.js";
 import { routeCampaign, type CampaignsConfig } from "../functions/routeCampaign.js";
-import { uploadLead, type PlusVibeLeadPayload } from "../integrations/plusvibe.js";
+import {
+  routeCampaignByEsp,
+  type EspCampaignsConfig,
+  type EspCampaignBucket
+} from "../functions/routeCampaignByEsp.js";
+import { uploadLead, type PlusVibeLeadPayload, type UploadTarget } from "../integrations/plusvibe.js";
 import { upsertLeads, type SupabaseLeadRow } from "../integrations/supabase.js";
 import { mapPool } from "../functions/mapPool.js";
 
 export type FinanceConfig = {
   vertical: string;
+  enrichmentProfile?: "healthcare" | "saas";
+  routingMode?: "domain_settings" | "esp";
   company: { name?: string; description: string };
   product: { name?: string; description: string };
-  campaigns: CampaignsConfig;
+  campaigns: CampaignsConfig & Partial<EspCampaignsConfig>;
   limits?: { openaiConcurrency?: number; uploadConcurrency?: number };
 };
 
@@ -69,6 +77,13 @@ type EnrichedLead = {
   company_type: string;
   facility_type: string;
   talent_type: string;
+  saas_motion: string;
+  customer_type: string;
+  primary_cta: string;
+  lead_icp: string;
+  value_prop: string;
+  cold_email_body: string;
+  esp_campaign_bucket: string;
   plusvibe_workspace_id: string;
   plusvibe_campaign_id: string;
   upload_ok: boolean;
@@ -128,13 +143,41 @@ function mergeCounts(target: StageCounts, delta: Partial<StageCounts>): void {
   }
 }
 
-function leadNeedsTryKitt(raw: LeadRow, emptyEmailOnly?: boolean): boolean {
+function isEspRouting(config: FinanceConfig): boolean {
+  return config.routingMode === "esp";
+}
+
+function leadNeedsTryKitt(raw: LeadRow, config: FinanceConfig, emptyEmailOnly?: boolean): boolean {
   if (cleanText(raw.email_business)) return false;
+  if (emptyEmailOnly && cleanText(raw.email_business)) return false;
+  if (isEspRouting(config)) return true;
   const domainSettingRaw = cleanText(raw.domain_settings).toLowerCase().replace(/[^a-z]/g, "");
   if (domainSettingRaw === "catchall") return false;
-  if (emptyEmailOnly && cleanText(raw.email_business)) return false;
   const trykittEligible = domainSettingRaw === "";
   return domainSettingRaw === "smtp" || trykittEligible;
+}
+
+function resolveWorkspaceId(workspaceId: string): string {
+  const envWs = cleanText(process.env.PLUSVIBE_WORKSPACE_ID);
+  if (envWs) return envWs;
+  return workspaceId;
+}
+
+function resolveEspCampaigns(config: FinanceConfig): EspCampaignsConfig {
+  const c = config.campaigns;
+  if (!c.googleAndOthers?.campaignId || !c.outlook?.campaignId) {
+    throw new Error("ESP routing requires campaigns.googleAndOthers and campaigns.outlook");
+  }
+  return {
+    googleAndOthers: {
+      workspaceId: resolveWorkspaceId(c.googleAndOthers.workspaceId),
+      campaignId: c.googleAndOthers.campaignId
+    },
+    outlook: {
+      workspaceId: resolveWorkspaceId(c.outlook.workspaceId),
+      campaignId: c.outlook.campaignId
+    }
+  };
 }
 
 async function processLeadRow(
@@ -161,8 +204,9 @@ async function processLeadRow(
   const domainSettingRaw = cleanText(raw.domain_settings).toLowerCase().replace(/[^a-z]/g, "");
 
   const emptyEmailMode = rowOpts.emptyEmailOnly === true;
+  const espMode = isEspRouting(config);
 
-  if (domainSettingRaw === "catchall") {
+  if (!espMode && domainSettingRaw === "catchall") {
     return drop("catchall_skipped", { catchall_skipped: 1 }, {
       reason: "catchall_skipped",
       email: emailBusiness,
@@ -182,9 +226,9 @@ async function processLeadRow(
     });
   }
 
-  // Blank domain_settings + missing Email Business → TryKitt path (treat as SMTP at route).
-  const trykittEligible = !emailBusiness && domainSettingRaw === "";
-  const domainEligible = domainSettingRaw === "smtp" || trykittEligible;
+  const trykittEligible = !emailBusiness && (espMode || domainSettingRaw === "");
+  const domainEligible =
+    espMode || domainSettingRaw === "smtp" || trykittEligible;
   if (!domainEligible) {
     return drop("unknown_domain_setting", {}, {
       reason: "unknown_domain_setting",
@@ -195,7 +239,7 @@ async function processLeadRow(
     });
   }
 
-  const base: Partial<StageCounts> = { smtp_eligible: 1 };
+  const base: Partial<StageCounts> = espMode ? {} : { smtp_eligible: 1 };
 
   let mx;
   try {
@@ -264,25 +308,97 @@ async function processLeadRow(
     companyDescription: raw.company_description,
     companyProductsServices: raw.company_products_services
   });
-  const facilityTalent = await enrichFacilityAndTalent({
-    companyNameNormalized,
-    companyDescription: raw.company_description,
-    companyProductsServices: raw.company_products_services,
-    title: raw.title
-  });
 
-  const route = routeCampaign(raw.domain_settings, config.campaigns, {
-    treatEmptyAsSmtp: trykittEligible || emptyEmailMode || domainSettingRaw === ""
-  });
-  if (!route.ok) {
-    return drop("unknown_domain_setting", base, {
-      reason: "unknown_domain_setting",
-      email: activeEmail,
-      domain: domainFromEmail(activeEmail),
-      raw,
-      detail: route.rawValue
+  const isSaas = config.enrichmentProfile === "saas";
+  let facilityType = "";
+  let talentType = "";
+  let saasMotion = "";
+  let customerType = "";
+  let primaryCta = "";
+  let leadIcp = "";
+  let valueProp = "";
+  let coldEmailBody = "";
+
+  if (isSaas) {
+    const saas = await enrichSaasOutreach({
+      firstName: raw.first_name,
+      companyName: raw.company_name,
+      companyDescription: raw.company_description,
+      companyProductsServices: raw.company_products_services,
+      companyIndustry: raw.company_industry,
+      title: raw.title,
+      companySize: raw.company_size,
+      vendorCompanyName: config.company.name,
+      vendorCompanyDescription: config.company.description,
+      vendorProductName: config.product.name,
+      vendorProductDescription: config.product.description
     });
+    saasMotion = saas.saas_motion;
+    customerType = saas.customer_type;
+    primaryCta = saas.primary_cta;
+    leadIcp = saas.lead_icp;
+    valueProp = saas.value_prop;
+    coldEmailBody = saas.cold_email_body;
+  } else {
+    const facilityTalent = await enrichFacilityAndTalent({
+      companyNameNormalized,
+      companyDescription: raw.company_description,
+      companyProductsServices: raw.company_products_services,
+      title: raw.title
+    });
+    facilityType = facilityTalent.facilityType;
+    talentType = facilityTalent.talentType;
   }
+
+  let uploadTarget: UploadTarget;
+  let domainSettingsLabel: string;
+  let espBucket: EspCampaignBucket | "" = "";
+
+  if (espMode) {
+    const espCampaigns = resolveEspCampaigns(config);
+    const espRoute = routeCampaignByEsp(mx.esp, espCampaigns);
+    if (!espRoute.ok) {
+      return drop("unknown_domain_setting", base, {
+        reason: "unknown_domain_setting",
+        email: activeEmail,
+        domain: domainFromEmail(activeEmail),
+        raw,
+        detail: `unknown esp: ${espRoute.esp}`
+      });
+    }
+    uploadTarget = espRoute.target;
+    espBucket = espRoute.bucket;
+    domainSettingsLabel = cleanText(raw.domain_settings) || espRoute.bucket;
+  } else {
+    const route = routeCampaign(raw.domain_settings, config.campaigns as CampaignsConfig, {
+      treatEmptyAsSmtp: trykittEligible || emptyEmailMode || domainSettingRaw === ""
+    });
+    if (!route.ok) {
+      return drop("unknown_domain_setting", base, {
+        reason: "unknown_domain_setting",
+        email: activeEmail,
+        domain: domainFromEmail(activeEmail),
+        raw,
+        detail: route.rawValue
+      });
+    }
+    uploadTarget = route.target;
+    domainSettingsLabel = route.setting;
+  }
+
+  const customVariables: Record<string, string> = isSaas
+    ? {
+        custom_saas_motion: saasMotion,
+        custom_customer_type: customerType,
+        custom_primary_cta: primaryCta,
+        custom_lead_icp: leadIcp,
+        custom_value_prop: valueProp,
+        custom_cold_email_body: coldEmailBody
+      }
+    : {
+        custom_talent_type: talentType,
+        custom_facility_type: facilityType
+      };
 
   const payload: PlusVibeLeadPayload = {
     email: activeEmail,
@@ -294,18 +410,15 @@ async function processLeadRow(
     linkedin_company_url: cleanText(raw.company_linkedin) || undefined,
     city: cleanText(raw.city) || undefined,
     country: cleanText(raw.country) || undefined,
-    custom_variables: {
-      custom_talent_type: facilityTalent.talentType || "",
-      custom_facility_type: facilityTalent.facilityType || ""
-    }
+    custom_variables: customVariables
   };
 
-  const upload = await uploadLead(payload, route.target);
+  const upload = await uploadLead(payload, uploadTarget);
   const uploadError = upload.ok
     ? undefined
     : {
         email: activeEmail,
-        campaign_id: route.target.campaignId,
+        campaign_id: uploadTarget.campaignId,
         error_message: upload.error
       };
 
@@ -317,13 +430,20 @@ async function processLeadRow(
       email_source: emailSource,
       email_verification_status: verificationStatus,
       esp_classification: mx.esp,
-      domain_settings: route.setting,
+      domain_settings: domainSettingsLabel,
       company_name_normalized: companyNameNormalized,
       company_type: companyType,
-      facility_type: facilityTalent.facilityType,
-      talent_type: facilityTalent.talentType,
-      plusvibe_workspace_id: route.target.workspaceId,
-      plusvibe_campaign_id: route.target.campaignId,
+      facility_type: facilityType,
+      talent_type: talentType,
+      saas_motion: saasMotion,
+      customer_type: customerType,
+      primary_cta: primaryCta,
+      lead_icp: leadIcp,
+      value_prop: valueProp,
+      cold_email_body: coldEmailBody,
+      esp_campaign_bucket: espBucket,
+      plusvibe_workspace_id: uploadTarget.workspaceId,
+      plusvibe_campaign_id: uploadTarget.campaignId,
       upload_ok: upload.ok,
       upload_error: upload.ok ? undefined : upload.error
     },
@@ -373,6 +493,12 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
   }
   if (opts.pilot) {
     console.log(`[pipeline] pilot/shard limit: processing ${leads.length} rows in this batch`);
+  }
+  if (isEspRouting(config)) {
+    console.log(`[pipeline] routingMode=esp (google/others + outlook campaigns)`);
+  }
+  if (config.enrichmentProfile === "saas") {
+    console.log(`[pipeline] enrichmentProfile=saas`);
   }
   if (opts.continuationNote) console.log(`[pipeline] ${opts.continuationNote}`);
 
@@ -431,7 +557,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
   const trykittCache = new Map<number, FindEmailResult>();
   const trykittBatchItems = leads
     .map((raw, i) => ({ raw, i }))
-    .filter(({ raw }) => leadNeedsTryKitt(raw, opts.emptyEmailOnly))
+    .filter(({ raw }) => leadNeedsTryKitt(raw, config, opts.emptyEmailOnly))
     .map(({ raw, i }) => ({
       key: i,
       firstName: raw.first_name,
@@ -511,20 +637,48 @@ export async function runPipeline(opts: PipelineOptions): Promise<void> {
 
 function readConfig(p: string): FinanceConfig {
   const text = fs.readFileSync(p, "utf-8");
-  return JSON.parse(text) as FinanceConfig;
+  const config = JSON.parse(text) as FinanceConfig;
+  if (config.routingMode === "esp" && config.campaigns) {
+    if (config.campaigns.googleAndOthers) {
+      config.campaigns.googleAndOthers.workspaceId = resolveWorkspaceId(
+        config.campaigns.googleAndOthers.workspaceId
+      );
+    }
+    if (config.campaigns.outlook) {
+      config.campaigns.outlook.workspaceId = resolveWorkspaceId(config.campaigns.outlook.workspaceId);
+    }
+  }
+  if (config.campaigns?.smtp) {
+    config.campaigns.smtp.workspaceId = resolveWorkspaceId(config.campaigns.smtp.workspaceId);
+  }
+  if (config.campaigns?.catchAll) {
+    config.campaigns.catchAll.workspaceId = resolveWorkspaceId(config.campaigns.catchAll.workspaceId);
+  }
+  return config;
 }
 
 function validateConfig(c: FinanceConfig): void {
   const missing: string[] = [];
   if (!c.company?.description) missing.push("company.description");
   if (!c.product?.description) missing.push("product.description");
-  if (!c.campaigns?.smtp?.workspaceId) missing.push("campaigns.smtp.workspaceId");
-  if (!c.campaigns?.smtp?.campaignId) missing.push("campaigns.smtp.campaignId");
-  if (!c.campaigns?.catchAll?.workspaceId) missing.push("campaigns.catchAll.workspaceId");
-  if (!c.campaigns?.catchAll?.campaignId) missing.push("campaigns.catchAll.campaignId");
+  if (c.routingMode === "esp") {
+    if (!c.campaigns?.googleAndOthers?.workspaceId) {
+      missing.push("campaigns.googleAndOthers.workspaceId");
+    }
+    if (!c.campaigns?.googleAndOthers?.campaignId) {
+      missing.push("campaigns.googleAndOthers.campaignId");
+    }
+    if (!c.campaigns?.outlook?.workspaceId) missing.push("campaigns.outlook.workspaceId");
+    if (!c.campaigns?.outlook?.campaignId) missing.push("campaigns.outlook.campaignId");
+  } else {
+    if (!c.campaigns?.smtp?.workspaceId) missing.push("campaigns.smtp.workspaceId");
+    if (!c.campaigns?.smtp?.campaignId) missing.push("campaigns.smtp.campaignId");
+    if (!c.campaigns?.catchAll?.workspaceId) missing.push("campaigns.catchAll.workspaceId");
+    if (!c.campaigns?.catchAll?.campaignId) missing.push("campaigns.catchAll.campaignId");
+  }
   if (missing.length > 0) {
     throw new Error(
-      `Config is missing required fields: ${missing.join(", ")}. See configs/finance.json.`
+      `Config is missing required fields: ${missing.join(", ")}. See configs/saas_founders.json or configs/finance.json.`
     );
   }
 }
@@ -591,6 +745,13 @@ function writeArtifacts(args: {
     company_type: e.company_type,
     facility_type: e.facility_type,
     talent_type: e.talent_type,
+    saas_motion: e.saas_motion,
+    customer_type: e.customer_type,
+    primary_cta: e.primary_cta,
+    lead_icp: e.lead_icp,
+    value_prop: e.value_prop,
+    cold_email_body: e.cold_email_body,
+    esp_campaign_bucket: e.esp_campaign_bucket,
     esp_classification: e.esp_classification,
     domain_settings: e.domain_settings,
     email_source: e.email_source,
@@ -644,10 +805,16 @@ function writeArtifacts(args: {
     supabase: supReport,
     icp,
     competitors,
-    campaigns_used: {
-      smtp: config.campaigns.smtp,
-      catchAll: config.campaigns.catchAll
-    },
+    campaigns_used:
+      config.routingMode === "esp"
+        ? {
+            googleAndOthers: config.campaigns.googleAndOthers,
+            outlook: config.campaigns.outlook
+          }
+        : {
+            smtp: config.campaigns.smtp,
+            catchAll: config.campaigns.catchAll
+          },
     operator_report: {
       processed_this_batch: counts.input,
       smtp_eligible: counts.smtp_eligible,
