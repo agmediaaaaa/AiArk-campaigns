@@ -3,12 +3,12 @@
   "enrichmentProfile": "saas",
   "routingMode": "esp",
   "company": {
-    "name": "AI Ark",
-    "description": "AI Ark helps SaaS founders run targeted outbound that turns into qualified demos and product signups."
+    "name": "Zillion Systems",
+    "description": "Zillion Systems (zillionsystems.com) helps SaaS founders fill their calendar with qualified demos and warm intros to buyers who match their ICP — without adding headcount to the sales team."
   },
   "product": {
-    "name": "AI Ark Campaigns",
-    "description": "Per-lead enriched outbound for SaaS founders — motion-aware copy that drives demos or signups based on how they sell."
+    "name": "Zillion Systems GTM",
+    "description": "Done-for-you demo generation and buyer intros for SaaS founders. We identify lookalike accounts, open doors with decision-makers, and deliver booked demos or product signups depending on your motion."
   },
   "campaigns": {
     "googleAndOthers": {
