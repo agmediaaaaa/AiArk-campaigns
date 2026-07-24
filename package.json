@@ -18,7 +18,8 @@
     "ma-full": "tsx scripts/run-ma-full-pipeline.ts",
     "ma-supabase-backfill": "tsx scripts/backfill-ma-supabase.ts",
     "ma-outlook-samples": "tsx scripts/enrich-ma-outlook-samples.ts",
-    "ma-outlook": "tsx scripts/run-ma-outlook-pipeline.ts"
+    "ma-outlook": "tsx scripts/run-ma-outlook-pipeline.ts",
+    "ma-sheet2": "tsx scripts/run-ma-sheet2-pipeline.ts"
   },
   "engines": {
     "node": ">=20.0.0"

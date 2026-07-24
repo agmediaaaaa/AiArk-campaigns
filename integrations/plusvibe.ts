@@ -73,6 +73,55 @@ export async function resolveWorkspaceId(nameOrId?: string): Promise<string> {
   );
 }
 
+export async function fetchCampaignEmails(
+  workspaceId: string,
+  campaignId: string
+): Promise<Set<string>> {
+  const c = getClient();
+  const emails = new Set<string>();
+  let page = 1;
+  const limit = 200;
+
+  while (true) {
+    const resp = await withRetry(
+      () =>
+        c.get("/api/v1/lead/workspace-leads", {
+          params: {
+            workspace_id: workspaceId,
+            campaign_id: campaignId,
+            page,
+            limit
+          }
+        }),
+      { label: `plusvibe.fetchCampaignEmails ${campaignId} page=${page}` }
+    );
+
+    const leads = Array.isArray(resp.data)
+      ? resp.data
+      : ((resp.data?.leads ?? resp.data?.data ?? []) as Array<{
+          email?: string;
+          Email?: string;
+        }>);
+    if (!Array.isArray(leads) || leads.length === 0) break;
+
+    for (const lead of leads) {
+      const email = String(lead.email ?? lead.Email ?? "")
+        .trim()
+        .toLowerCase();
+      if (email) emails.add(email);
+    }
+
+    const totalPages = Number(
+      resp.data?.total_pages ?? resp.data?.totalPages ?? resp.headers?.["x-total-pages"] ?? 0
+    );
+    if (totalPages > 0 && page >= totalPages) break;
+    if (leads.length < limit) break;
+    page++;
+  }
+
+  return emails;
+}
+
 export async function uploadLead(
   payload: PlusVibeLeadPayload,
   target: UploadTarget
