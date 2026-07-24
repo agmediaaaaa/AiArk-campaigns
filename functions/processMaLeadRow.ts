@@ -10,6 +10,7 @@ import { verifyEmail } from "./verifyEmail.js";
 import {
   normalizeDomainSetting,
   normalizeSheetRow,
+  mapEsp,
   type MaSheetRow,
   type PreparedMaLead
 } from "./prepareMaSheet.js";
@@ -121,6 +122,13 @@ export function leadNeedsTryKitt(row: MaSheetRow): boolean {
   return setting === "SMTP" || setting === "";
 }
 
+function mxDataIsInformative(mx: string): boolean {
+  const m = cleanText(mx);
+  if (!m) return false;
+  if (/^status\s*code:\s*\d+$/i.test(m)) return false;
+  return true;
+}
+
 export async function gateMaLeadForPipeline(
   rawRow: MaSheetRow,
   opts: Pick<ProcessMaLeadOptions, "trykittCache" | "rowIndex" | "skipTryKitt"> = {}
@@ -133,10 +141,19 @@ export async function gateMaLeadForPipeline(
   const companyWebsite = cleanText(r.company_website);
   const domain = resolveLeadDomain(csvEmail, companyWebsite);
   const sheetMx = cleanText(r.mx_records);
+  const sheetPlatform = mapEsp(cleanText(r.email_platform));
+
+  if (sheetPlatform === "seg") {
+    return removed("security_gateway", r, csvEmail, sheetPlatform);
+  }
 
   let mxData = sheetMx;
   let esp = espFromMxData(sheetMx);
   let isSeg = isSegMxData(sheetMx);
+
+  if (!mxDataIsInformative(sheetMx) && sheetPlatform && sheetPlatform !== "empty") {
+    esp = sheetPlatform as typeof esp;
+  }
 
   if (!sheetMx && domain) {
     const mx = await classifyMx(domain);
@@ -200,6 +217,8 @@ export async function gateMaLeadForPipeline(
   }
 
   const lead = toPreparedLead(r, activeEmail, domainSetting, esp, mxData);
+  lead.email_platform = cleanText(r.email_platform) || lead.email_platform;
+  lead.esp_classification = esp;
   return {
     ok: true,
     gated: {
