@@ -16,7 +16,7 @@ export function getSupabase(): SupabaseClient {
   return client;
 }
 
-export const SUPABASE_TABLE = process.env.SUPABASE_TABLE ?? "leads";
+export const SUPABASE_TABLE = process.env.SUPABASE_TABLE ?? "Lead Database";
 
 /** Row shape for Supabase table `Lead Database` (matches user column names). */
 export type SupabaseLeadRow = {
@@ -39,29 +39,31 @@ export async function upsertLeads(
   rows: SupabaseLeadRow[],
   opts: { chunkSize?: number } = {}
 ): Promise<UpsertReport> {
-  const chunkSize = opts.chunkSize ?? 500;
+  const chunkSize = opts.chunkSize ?? 50;
   const report: UpsertReport = { attempted: rows.length, succeeded: 0, failed: 0, errors: [] };
   if (rows.length === 0) return report;
 
   const supabase = getSupabase();
-  const onConflict = process.env.SUPABASE_ON_CONFLICT ?? "Email";
-  const stamped = rows.map((r) => ({ ...r }));
+  const useRpc =
+    process.env.SUPABASE_USE_RPC !== "false" &&
+    (SUPABASE_TABLE === "Lead Database" || process.env.SUPABASE_USE_RPC === "true");
 
-  for (let i = 0; i < stamped.length; i += chunkSize) {
-    const chunk = stamped.slice(i, i + chunkSize);
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
     const chunkIdx = Math.floor(i / chunkSize);
     try {
       await withRetry(
         async () => {
+          if (useRpc) {
+            const { error } = await supabase.rpc("upsert_lead_database_rows", { payload: chunk });
+            if (error) throw new Error(error.message);
+            return;
+          }
+          const onConflict = process.env.SUPABASE_ON_CONFLICT ?? "Email";
           const { error } = await supabase
             .from(SUPABASE_TABLE)
             .upsert(chunk, { onConflict, ignoreDuplicates: false });
-          if (error) {
-            const status = (error as { status?: number }).status;
-            const wrapped: Error & { status?: number } = new Error(error.message);
-            wrapped.status = status;
-            throw wrapped;
-          }
+          if (error) throw new Error(error.message);
         },
         { label: `supabase.upsert chunk=${chunkIdx}` }
       );
