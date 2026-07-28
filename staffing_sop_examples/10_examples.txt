@@ -1,0 +1,184 @@
+Sheet 1 cold email SOP examples (enriched)
+Sender: Jessica | PlusVibe ZS workspace: 69a5b2169433a45c6f6d7d1c
+Note: Live PlusVibe dedupe blocked (Invalid API key on MCP). Sheet 1 matches prior staffing_leads_full.csv already used in ZS campaigns — treat these as copy examples, re-check before upload.
+
+===== EXAMPLE 1 | Framework 1 | 43 words =====
+Lead: Katharine @ Hawthorne Executive Search <katharine@hawthornesearch.com>
+talent_type: digital and retail executives
+buyer_type: retail ecommerce media and fintech employers
+Subject: Katharine — a few employers
+
+<div>
+Katharine,
+<br></br>
+While looking at Hawthorne Executive Search's retail and digital placement work, I pulled several employers already hiring for those mid-to-senior roles.
+<br></br>
+I introduce search firms to the hiring managers only after demand is confirmed.
+<br></br>
+Want to see what we pulled?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 2 | Framework 4 | 41 words =====
+Lead: Dara @ Seaside Staffing Company <dara@seasidestaffingcompany.com>
+talent_type: nannies chefs and household staff
+buyer_type: private households needing domestic support
+Subject: Dara — household hiring
+
+<div>
+Dara,
+<br></br>
+Given Seaside's focus on placing nannies, chefs, and house managers, a few households in your lane stood out as actively looking.
+<br></br>
+I can open conversations with those families when the fit looks real.
+<br></br>
+Curious to see a few?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 3 | Framework 2 | 38 words =====
+Lead: Jim @ Mom's Best Friend Nannies and Household Staff <jim.winblood@momsbestfriend.com>
+talent_type: nannies and household staff
+buyer_type: Texas families hiring domestic help
+Subject: Jim — Texas hiring activity
+
+<div>
+Jim,
+<br></br>
+Hiring for nannies and household staff looks active among families in Austin, Houston, and Dallas.
+<br></br>
+I open quiet conversations between Mom's Best Friend and those households when the need is clear.
+<br></br>
+Worth taking a look?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 4 | Framework 3 | 40 words =====
+Lead: Michael @ CynaMed Inc. <mblackburn@cynamed.com>
+talent_type: nurses and allied clinicians
+buyer_type: nursing homes and assisted living operators
+Subject: Michael — facility pipeline
+
+<div>
+Michael,
+<br></br>
+I already have a short list of Western PA facilities staffing nurses and allied clinicians in CynaMed's coverage area.
+<br></br>
+Each account gets checked for real hiring demand before any intro goes out.
+<br></br>
+Open to reviewing a few?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 5 | Framework 5 | 36 words =====
+Lead: Tiffany @ Intellect Resources <tcrenshaw@intellectresources.com>
+talent_type: health tech and healthcare IT talent
+buyer_type: providers health tech firms and startups
+Subject: Tiffany — market notes
+
+<div>
+Tiffany,
+<br></br>
+While scanning the health tech market, several employers lined up with Intellect Resources' healthcare IT placement focus.
+<br></br>
+My work is making warm intros into those teams when they're staffing.
+<br></br>
+Happy to share them?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 6 | Framework 6 | 38 words =====
+Lead: Mike @ Abacus Search & Staffing <mike@abacus95.com>
+talent_type: accounting and finance professionals
+buyer_type: mid-market companies building finance teams
+Subject: Mike — finance hiring
+
+<div>
+Mike,
+<br></br>
+A handful of mid-market employers are actively adding accounting and finance professionals that match Abacus Search & Staffing's lane.
+<br></br>
+Intros only move once hiring need is clear on their side.
+<br></br>
+Interested in seeing a few?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 7 | Framework 1 | 41 words =====
+Lead: Denney @ Easter Medical Staffing <denney@eastermedical.com>
+talent_type: CRNAs physicians and advanced practice clinicians
+buyer_type: hospitals and surgical facilities
+Subject: Denney — clinical demand
+
+<div>
+Denney,
+<br></br>
+I mapped several hospitals and surgical sites currently seeking CRNAs and advanced practice clinicians relevant to Easter Medical Staffing.
+<br></br>
+I connect staffing firms to those hiring managers when the requisition is live.
+<br></br>
+Want to see what we found?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 8 | Framework 2 | 36 words =====
+Lead: Kevin @ Gambit Technologies <kevin@gambitny.com>
+talent_type: technology and financial services talent
+buyer_type: NYC tech and finance employers
+Subject: Kevin — NYC hiring
+
+<div>
+Kevin,
+<br></br>
+Tech and finance employers in New York are posting for the kinds of roles Gambit Technologies places.
+<br></br>
+I set up introductions into those hiring managers for recruiting partners.
+<br></br>
+Open to a quick look?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 9 | Framework 4 | 37 words =====
+Lead: Matthew @ Leslie Gaber Associates <matt@lesliegaber.com>
+talent_type: pharma and biotech executives
+buyer_type: emerging biotech and pharma manufacturers
+Subject: Matthew — biotech search
+
+<div>
+Matthew,
+<br></br>
+Leslie Gaber Associates' focus on pharma and biotech executive search lines up with several manufacturers and emerging biotechs adding leadership.
+<br></br>
+I can walk you through those accounts if useful.
+<br></br>
+Want to see the companies?
+<br></br>
+- Jessica
+</div>
+
+===== EXAMPLE 10 | Framework 3 | 38 words =====
+Lead: Josiah @ Whitman Partners <josiah.whitman@whitmanpartners.com>
+talent_type: Directors of Surgical Services
+buyer_type: hospitals and ambulatory surgery centers
+Subject: Josiah — perioperative accounts
+
+<div>
+Josiah,
+<br></br>
+I built a small pipeline of hospitals and surgery centers hiring Directors of Surgical Services — squarely in Whitman Partners' niche.
+<br></br>
+Demand gets qualified before any introduction is made.
+<br></br>
+Want to review a few accounts?
+<br></br>
+- Jessica
+</div>
+
