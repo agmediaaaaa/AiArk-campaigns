@@ -184,27 +184,23 @@ function buildPayload(args: {
     city: cleanText(raw.city) || undefined,
     country: cleanText(raw.country) || undefined,
     phone_number: cleanText(raw.mobile_phone) || undefined,
+    // Keys must NOT start with custom_ — PlusVibe prefixes custom_ automatically.
     custom_variables: {
-      custom_state: cleanText(raw.state) || "",
-      custom_title: cleanText(raw.title) || "",
-      custom_talent_type: args.talentType || "",
-      custom_buyer_type: args.buyerType || "",
-      custom_client_type: args.buyerType || "",
-      custom_subject: args.subject || "",
-      custom_email_body: args.emailBody,
-      custom_cold_email: args.emailBody,
-      custom_framework: String(args.framework),
-      custom_word_count: String(args.wordCount),
-      custom_esp: args.esp || "",
-      custom_domain_settings: args.routeSetting || "",
-      custom_email_source: args.emailSource || "",
-      custom_company_industry: cleanText(raw.company_industry) || "",
-      custom_company_size: cleanText(raw.company_size) || "",
-      custom_company_employee_count: cleanText(raw.company_employee_count) || "",
-      custom_seniority: cleanText(raw.seniority) || "",
-      custom_department: cleanText(raw.department) || "",
-      custom_company_description: cleanText(raw.company_description).slice(0, 500) || "",
-      custom_company_products_services: productsField(raw).slice(0, 400) || ""
+      talent_type: args.talentType || "",
+      buyer_type: args.buyerType || "",
+      client_type: args.buyerType || "",
+      state: cleanText(raw.state) || "",
+      title: cleanText(raw.title) || "",
+      esp: args.esp || "",
+      domain_settings: args.routeSetting || "",
+      email_source: args.emailSource || "",
+      company_industry: cleanText(raw.company_industry) || "",
+      company_size: cleanText(raw.company_size) || "",
+      company_employee_count: cleanText(raw.company_employee_count) || "",
+      seniority: cleanText(raw.seniority) || "",
+      department: cleanText(raw.department) || "",
+      company_description: cleanText(raw.company_description).slice(0, 500) || "",
+      company_products_services: productsField(raw).slice(0, 400) || ""
     }
   };
 }

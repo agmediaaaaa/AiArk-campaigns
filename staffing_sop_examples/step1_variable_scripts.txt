@@ -1,0 +1,77 @@
+===== A. Framework 1 — Companies Already Identified =====
+Subject: {{first_name}} — a few companies
+
+{{first_name}},
+
+I've identified companies hiring {{custom_talent_type}} that look relevant for {{company_name}}.
+
+I introduce recruiting firms to hiring managers on a performance basis.
+
+Want to see a few of those companies?
+
+- {{sender_first_name}}
+
+===== B. Framework 2 — Market Activity =====
+Subject: {{first_name}} — hiring activity
+
+{{first_name}},
+
+I've been seeing strong hiring activity among {{custom_buyer_type}} for {{custom_talent_type}}.
+
+I help recruiting firms start conversations with those employers.
+
+Open to looking at a few examples?
+
+- {{sender_first_name}}
+
+===== C. Framework 3 — Existing Pipeline =====
+Subject: {{first_name}} — account pipeline
+
+{{first_name}},
+
+I've already built a pipeline of employers hiring {{custom_talent_type}}.
+
+I qualify hiring demand before making any introductions.
+
+Want to review a few of those accounts?
+
+- {{sender_first_name}}
+
+===== D. Framework 4 — Niche Alignment =====
+Subject: {{first_name}} — niche fit
+
+{{first_name}},
+
+Given {{company_name}}'s focus on placing {{custom_talent_type}}, that specialty stood out.
+
+I've found companies currently looking for that talent.
+
+Curious to see the companies?
+
+- {{sender_first_name}}
+
+===== E. Framework 5 — Research Discovery =====
+Subject: {{first_name}} — market notes
+
+{{first_name}},
+
+While researching the market, I came across several employers relevant to your niche.
+
+I generate introductions into those companies.
+
+Happy to share the accounts?
+
+- {{sender_first_name}}
+
+===== F. Framework 6 — Qualified Demand =====
+Subject: {{first_name}} — qualified demand
+
+{{first_name}},
+
+I've identified employers actively hiring {{custom_talent_type}}.
+
+Introductions only happen after hiring demand is confirmed.
+
+Interested in reviewing a few?
+
+- {{sender_first_name}}
