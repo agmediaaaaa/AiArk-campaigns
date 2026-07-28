@@ -10,7 +10,9 @@
     "dev": "tsx watch index.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "shards": "tsx scripts/run-parallel-shards.ts"
+    "shards": "tsx scripts/run-parallel-shards.ts",
+    "staffing-sop": "tsx scripts/run-staffing-sop-sheet1.ts",
+    "fetch-zs-emails": "tsx scripts/fetch-zs-emails.ts"
   },
   "engines": {
     "node": ">=20.0.0"
