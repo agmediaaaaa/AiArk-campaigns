@@ -18,16 +18,20 @@ const DATE = `{{pipl_date "now_wd 2Days" "dddd"}}`;
 
 const CTA = `{{random|Are you free for 10 minutes on ${DATE} to go over the accounts and see the opportunities?|Do you have 10 minutes available on ${DATE} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on ${DATE} to go through the accounts and see the opportunities?}}`;
 
+const SIG = `- {{sender_first_name}}`;
+
 export const STAFFING_STEP1_SCRIPTS: Step1Variant[] = [
   {
     variation: "A",
     name: "System — Companies identified",
     subject: "{{first_name}} — {{random|a few companies|companies hiring|quick thought}}",
-    body: `{{first_name}}, {{random|we've identified a few companies currently hiring {{custom_talent_type}} that look like a strong fit for {{company_name}}.|we've found several companies actively hiring {{custom_talent_type}} that appear to be a strong match for {{company_name}}.|we identified a handful of companies currently looking for {{custom_talent_type}} that seem well aligned with {{company_name}}.}}
+    body: `{{first_name}}, {{random|we've identified a few companies currently hiring {{custom_talent_type}} that look like a strong fit for {{company_name}}.|we've found several companies currently hiring {{custom_talent_type}} that appear to be a strong match for {{company_name}}.|we identified a handful of companies currently looking for {{custom_talent_type}} that seem well aligned with {{company_name}}.}}
 
 {{random|We help recruiting firms turn opportunities like these into qualified conversations by reaching out, qualifying interest, and introducing you to hiring teams.|We help recruiting firms convert opportunities like these into qualified conversations by handling outreach, gauging interest, and connecting you with hiring teams.|We support recruiting firms in turning opportunities like these into qualified conversations through targeted outreach, interest qualification, and introductions to hiring teams.}} {{random|We work on a performance basis, so we only charge for qualified introductions.|We operate on a performance-based model, meaning you only pay for qualified introductions.|Our model is performance-based, so you only pay for qualified introductions.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "B",
@@ -37,7 +41,9 @@ ${CTA}`
 
 {{random|We don't sell lead lists — we reach out, qualify the opportunity, and introduce recruiting firms directly to hiring teams.|Rather than selling lists, we reach out, qualify interest, and introduce recruiting firms directly to hiring teams.|We don't hand over lead lists — we handle outreach, qualify the opportunity, and introduce recruiting firms to hiring teams.}} {{random|We only charge when a qualified introduction is made.|You only pay when a qualified introduction is made.|Payment only happens when a qualified introduction is made.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "C",
@@ -47,7 +53,9 @@ ${CTA}`
 
 {{random|We handle the outreach and qualification, then introduce you to hiring managers on a performance basis — we only charge when a qualified meeting takes place.|We take care of outreach and qualification, then introduce you to hiring managers on a performance basis — you only pay when a qualified meeting takes place.|We run the outreach and qualification first, then introduce you to hiring managers on a performance basis — we only charge when a qualified meeting happens.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "D",
@@ -57,7 +65,9 @@ ${CTA}`
 
 {{random|We help recruiting firms get warm introductions into companies like these on a performance basis — we handle the outreach and qualification, and only charge when a qualified meeting takes place.|We help recruiting firms secure warm introductions into companies like these on a performance basis — we handle outreach and qualification, and only charge when a qualified meeting takes place.|We open warm introductions into companies like these for recruiting firms on a performance basis — we handle outreach and qualification, and only charge when a qualified meeting happens.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "E",
@@ -67,7 +77,9 @@ ${CTA}`
 
 {{random|We help recruiting firms get warm introductions into companies like these on a performance basis — we handle the outreach and qualification, and only charge when a qualified meeting takes place.|We help recruiting firms generate warm introductions into companies like these on a performance basis — we handle outreach and qualification, and only charge when a qualified meeting takes place.|We create warm introductions into companies like these for recruiting firms on a performance basis — we handle the outreach and qualification, and only charge when a qualified meeting happens.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "F",
@@ -77,7 +89,9 @@ ${CTA}`
 
 {{random|We reach out, qualify whether there's real hiring demand, and introduce recruiting firms to those hiring teams.|We reach out first, confirm real hiring demand, and introduce recruiting firms to those hiring teams.|We handle outreach, confirm whether hiring demand is real, and introduce recruiting firms to those hiring teams.}} {{random|We only charge when a qualified introduction is made.|You only pay when a qualified introduction is made.|Payment only happens when a qualified introduction is made.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "G",
@@ -87,7 +101,9 @@ ${CTA}`
 
 {{random|We've identified a few {{custom_buyer_type}} currently hiring {{custom_talent_type}} that look relevant for {{company_name}}.|We've found several {{custom_buyer_type}} currently hiring {{custom_talent_type}} that look relevant for {{company_name}}.|We identified a handful of {{custom_buyer_type}} currently hiring {{custom_talent_type}} that look like a fit for {{company_name}}.}} {{random|We reach out, qualify interest, and introduce you to hiring teams on a performance basis — only charging when a qualified introduction is made.|We handle outreach, qualify interest, and introduce you to hiring teams on a performance basis — only charging when a qualified introduction is made.|We reach out, qualify interest, and introduce you to hiring teams on a performance basis — you only pay when a qualified introduction is made.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "H",
@@ -97,7 +113,9 @@ ${CTA}`
 
 {{random|We've been researching {{custom_buyer_type}} and found several currently hiring {{custom_talent_type}}.|We've been looking across {{custom_buyer_type}} and found several currently hiring {{custom_talent_type}}.|While researching {{custom_buyer_type}}, we found several companies currently hiring {{custom_talent_type}}.}} {{random|We don't sell lists — we qualify the opportunity first, then introduce {{company_name}} to the hiring team.|Rather than selling lists, we qualify the opportunity first, then introduce {{company_name}} to the hiring team.|We don't hand over lists — we qualify the opportunity first, then introduce {{company_name}} to the hiring team.}} {{random|You only pay when a qualified introduction happens.|We only charge when a qualified introduction happens.|Payment only happens when a qualified introduction is made.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "I",
@@ -107,7 +125,9 @@ ${CTA}`
 
 {{random|We've identified a handful of companies actively hiring for that profile.|We've found several companies actively hiring for that profile.|We identified a few companies actively hiring for that profile.}} {{random|We handle the outreach and qualification, then introduce you on a performance basis — only charging when a qualified meeting takes place.|We take care of outreach and qualification, then introduce you on a performance basis — only charging when a qualified meeting takes place.|We run outreach and qualification first, then introduce you on a performance basis — you only pay when a qualified meeting takes place.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "J",
@@ -117,7 +137,9 @@ ${CTA}`
 
 {{random|While researching your market, we came across companies actively hiring {{custom_talent_type}} that looked like good prospects for {{company_name}}.|While researching your market, we identified companies actively hiring {{custom_talent_type}} that looked like good prospects for {{company_name}}.|In researching your market, we found companies actively hiring {{custom_talent_type}} that looked relevant for {{company_name}}.}} {{random|We help recruiting firms get warm introductions into accounts like these — we handle outreach and qualification, and only charge when a qualified meeting happens.|We help recruiting firms open warm introductions into accounts like these — we handle outreach and qualification, and only charge when a qualified meeting happens.|We create warm introductions into accounts like these for recruiting firms — we handle outreach and qualification, and only charge when a qualified meeting takes place.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   },
   {
     variation: "K",
@@ -127,17 +149,20 @@ ${CTA}`
 
 {{random|We've identified a handful of {{custom_buyer_type}} currently hiring that look relevant for your team.|We've found several {{custom_buyer_type}} currently hiring that look relevant for your team.|We identified a few {{custom_buyer_type}} currently hiring that look like a fit for your team.}} {{random|We reach out, qualify whether the need is real, and introduce recruiting firms to those hiring teams — only charging when a qualified introduction is made.|We reach out, confirm the need is real, and introduce recruiting firms to those hiring teams — only charging when a qualified introduction is made.|We handle outreach, confirm the need is real, and introduce recruiting firms to those hiring teams — you only pay when a qualified introduction is made.}}
 
-${CTA}`
+${CTA}
+
+${SIG}`
   }
 ];
 
-/** HTML bodies for PlusVibe sequence `body` field (div + br only). */
+/** HTML bodies for PlusVibe sequence `body` field (div + br only).
+ *  One blank line between paragraphs → two <br> tags. */
 export function toHtmlBody(plain: string): string {
   const lines = plain
     .split(/\n+/)
     .map((l) => l.trim())
     .filter(Boolean);
-  return `<div>\n${lines.join("\n<br></br>\n")}\n</div>`;
+  return `<div>\n${lines.join("\n<br></br>\n<br></br>\n")}\n</div>`;
 }
 
 export function getStep1SequencePayload(waitTimeDays = 3) {

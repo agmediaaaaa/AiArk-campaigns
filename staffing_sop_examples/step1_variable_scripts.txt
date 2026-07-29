@@ -1,11 +1,13 @@
 ===== A. System — Companies identified =====
 Subject: {{first_name}} — {{random|a few companies|companies hiring|quick thought}}
 
-{{first_name}}, {{random|we've identified a few companies currently hiring {{custom_talent_type}} that look like a strong fit for {{company_name}}.|we've found several companies actively hiring {{custom_talent_type}} that appear to be a strong match for {{company_name}}.|we identified a handful of companies currently looking for {{custom_talent_type}} that seem well aligned with {{company_name}}.}}
+{{first_name}}, {{random|we've identified a few companies currently hiring {{custom_talent_type}} that look like a strong fit for {{company_name}}.|we've found several companies currently hiring {{custom_talent_type}} that appear to be a strong match for {{company_name}}.|we identified a handful of companies currently looking for {{custom_talent_type}} that seem well aligned with {{company_name}}.}}
 
 {{random|We help recruiting firms turn opportunities like these into qualified conversations by reaching out, qualifying interest, and introducing you to hiring teams.|We help recruiting firms convert opportunities like these into qualified conversations by handling outreach, gauging interest, and connecting you with hiring teams.|We support recruiting firms in turning opportunities like these into qualified conversations through targeted outreach, interest qualification, and introductions to hiring teams.}} {{random|We work on a performance basis, so we only charge for qualified introductions.|We operate on a performance-based model, meaning you only pay for qualified introductions.|Our model is performance-based, so you only pay for qualified introductions.}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
+
+- {{sender_first_name}}
 
 ===== B. System — Market research =====
 Subject: {{first_name}} — {{random|hiring activity|market notes|quick look}}
@@ -16,6 +18,8 @@ Subject: {{first_name}} — {{random|hiring activity|market notes|quick look}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
 
+- {{sender_first_name}}
+
 ===== C. System — Existing pipeline =====
 Subject: {{first_name}} — {{random|accounts identified|short list|pipeline}}
 
@@ -24,6 +28,8 @@ Subject: {{first_name}} — {{random|accounts identified|short list|pipeline}}
 {{random|We handle the outreach and qualification, then introduce you to hiring managers on a performance basis — we only charge when a qualified meeting takes place.|We take care of outreach and qualification, then introduce you to hiring managers on a performance basis — you only pay when a qualified meeting takes place.|We run the outreach and qualification first, then introduce you to hiring managers on a performance basis — we only charge when a qualified meeting happens.}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
+
+- {{sender_first_name}}
 
 ===== D. System — Niche alignment =====
 Subject: {{first_name}} — {{random|niche fit|your specialty|market fit}}
@@ -34,6 +40,8 @@ Subject: {{first_name}} — {{random|niche fit|your specialty|market fit}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
 
+- {{sender_first_name}}
+
 ===== E. System — Research discovery =====
 Subject: {{first_name}} — {{random|market notes|research note|quick share}}
 
@@ -42,6 +50,8 @@ Subject: {{first_name}} — {{random|market notes|research note|quick share}}
 {{random|We help recruiting firms get warm introductions into companies like these on a performance basis — we handle the outreach and qualification, and only charge when a qualified meeting takes place.|We help recruiting firms generate warm introductions into companies like these on a performance basis — we handle outreach and qualification, and only charge when a qualified meeting takes place.|We create warm introductions into companies like these for recruiting firms on a performance basis — we handle the outreach and qualification, and only charge when a qualified meeting happens.}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
+
+- {{sender_first_name}}
 
 ===== F. System — Qualified demand =====
 Subject: {{first_name}} — {{random|qualified demand|active hiring|demand signal}}
@@ -52,6 +62,8 @@ Subject: {{first_name}} — {{random|qualified demand|active hiring|demand signa
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
 
+- {{sender_first_name}}
+
 ===== G. Angle — Companies already hiring =====
 Subject: {{first_name}} — {{random|hiring demand|already hiring|real demand}}
 
@@ -60,6 +72,8 @@ Subject: {{first_name}} — {{random|hiring demand|already hiring|real demand}}
 {{random|We've identified a few {{custom_buyer_type}} currently hiring {{custom_talent_type}} that look relevant for {{company_name}}.|We've found several {{custom_buyer_type}} currently hiring {{custom_talent_type}} that look relevant for {{company_name}}.|We identified a handful of {{custom_buyer_type}} currently hiring {{custom_talent_type}} that look like a fit for {{company_name}}.}} {{random|We reach out, qualify interest, and introduce you to hiring teams on a performance basis — only charging when a qualified introduction is made.|We handle outreach, qualify interest, and introduce you to hiring teams on a performance basis — only charging when a qualified introduction is made.|We reach out, qualify interest, and introduce you to hiring teams on a performance basis — you only pay when a qualified introduction is made.}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
+
+- {{sender_first_name}}
 
 ===== H. Angle — Less wasted outreach =====
 Subject: {{first_name}} — {{random|less wasted outreach|better targeting|focused BD}}
@@ -70,6 +84,8 @@ Subject: {{first_name}} — {{random|less wasted outreach|better targeting|focus
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
 
+- {{sender_first_name}}
+
 ===== I. Angle — Warmer conversations =====
 Subject: {{first_name}} — {{random|warmer conversations|hiring managers|better intros}}
 
@@ -78,6 +94,8 @@ Subject: {{first_name}} — {{random|warmer conversations|hiring managers|better
 {{random|We've identified a handful of companies actively hiring for that profile.|We've found several companies actively hiring for that profile.|We identified a few companies actively hiring for that profile.}} {{random|We handle the outreach and qualification, then introduce you on a performance basis — only charging when a qualified meeting takes place.|We take care of outreach and qualification, then introduce you on a performance basis — only charging when a qualified meeting takes place.|We run outreach and qualification first, then introduce you on a performance basis — you only pay when a qualified meeting takes place.}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
+
+- {{sender_first_name}}
 
 ===== J. Angle — Steadier pipeline =====
 Subject: {{first_name}} — {{random|steadier pipeline|more predictable BD|pipeline help}}
@@ -88,6 +106,8 @@ Subject: {{first_name}} — {{random|steadier pipeline|more predictable BD|pipel
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
 
+- {{sender_first_name}}
+
 ===== K. Angle — Real hiring demand =====
 Subject: {{first_name}} — {{random|real demand|qualified intros|hiring signal}}
 
@@ -96,3 +116,5 @@ Subject: {{first_name}} — {{random|real demand|qualified intros|hiring signal}
 {{random|We've identified a handful of {{custom_buyer_type}} currently hiring that look relevant for your team.|We've found several {{custom_buyer_type}} currently hiring that look relevant for your team.|We identified a few {{custom_buyer_type}} currently hiring that look like a fit for your team.}} {{random|We reach out, qualify whether the need is real, and introduce recruiting firms to those hiring teams — only charging when a qualified introduction is made.|We reach out, confirm the need is real, and introduce recruiting firms to those hiring teams — only charging when a qualified introduction is made.|We handle outreach, confirm the need is real, and introduce recruiting firms to those hiring teams — you only pay when a qualified introduction is made.}}
 
 {{random|Are you free for 10 minutes on {{pipl_date "now_wd 2Days" "dddd"}} to go over the accounts and see the opportunities?|Do you have 10 minutes available on {{pipl_date "now_wd 2Days" "dddd"}} to review the accounts and explore the opportunities?|Would you be free for a quick 10-minute chat on {{pipl_date "now_wd 2Days" "dddd"}} to go through the accounts and see the opportunities?}}
+
+- {{sender_first_name}}
