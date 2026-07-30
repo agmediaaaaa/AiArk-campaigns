@@ -1,12 +1,19 @@
 /**
- * Sheet 1 staffing SOP pipeline:
+ * Staffing SOP pipeline (Sheet 1+ multi-sheet capable):
  * - exclude existing ZS workspace emails
  * - SEG drop
  * - TryKitt + MillionVerifier for missing emails
  * - enrich talent_type / buyer_type
- * - compose original SOP emails (no signature)
+ * - optional compose (usually skipped; campaigns use Step 1 templates)
  * - route Google vs Outlook campaigns
  * - upload with all standard + custom variables
+ *
+ * Flags:
+ *   --input path|dir|csv,csv   (dir loads all *.csv)
+ *   --google-only              skip Outlook ESP (no enrich/upload)
+ *   --skip-compose             skip OpenAI email body compose
+ *   --skip-trykitt             do not find missing emails
+ *   --dry-run                  no PlusVibe upload
  */
 import "dotenv/config";
 import fs from "node:fs";
@@ -206,7 +213,7 @@ function buildPayload(args: {
 }
 
 async function main(): Promise<void> {
-  const input = path.resolve(argValue("--input") ?? "data/staffing_sheet1.csv");
+  const input = argValue("--input") ?? "data/staffing_sheet1.csv";
   const configPath = path.resolve(argValue("--config") ?? "configs/staffing_zs_sop_v4.json");
   const outDir = path.resolve(argValue("--out-dir") ?? `staffing_sop_v4_run_${Date.now()}`);
   const existingPath = path.resolve(argValue("--existing-emails") ?? "/tmp/zs_existing_emails.json");
@@ -215,6 +222,8 @@ async function main(): Promise<void> {
   const start = Number(argValue("--start") ?? "0") || 0;
   const skipTrykitt = hasFlag("--skip-trykitt");
   const fallbackOnly = hasFlag("--fallback-only");
+  const googleOnly = hasFlag("--google-only");
+  const skipCompose = hasFlag("--skip-compose");
 
   const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Config;
   const openaiConcurrency = config.limits?.openaiConcurrency ?? 8;
@@ -224,13 +233,27 @@ async function main(): Promise<void> {
     JSON.parse(fs.readFileSync(existingPath, "utf-8")) as string[]
   );
 
-  let leads = readLeadsCsv(input);
+  const inputParts = input.split(",").map((p) => p.trim()).filter(Boolean);
+  let leads: LeadRow[] = [];
+  for (const part of inputParts) {
+    const resolved = path.resolve(part);
+    if (fs.statSync(resolved).isDirectory()) {
+      const files = fs
+        .readdirSync(resolved)
+        .filter((f) => f.toLowerCase().endsWith(".csv"))
+        .sort()
+        .map((f) => path.join(resolved, f));
+      for (const f of files) leads = leads.concat(readLeadsCsv(f));
+    } else {
+      leads = leads.concat(readLeadsCsv(resolved));
+    }
+  }
   if (start > 0) leads = leads.slice(start);
   if (limit > 0) leads = leads.slice(0, limit);
 
   fs.mkdirSync(outDir, { recursive: true });
   console.log(
-    `[sop] input=${input} rows=${leads.length} existing_emails=${existing.size} dryRun=${dryRun} out=${outDir}`
+    `[sop] input=${input} rows=${leads.length} existing_emails=${existing.size} dryRun=${dryRun} googleOnly=${googleOnly} skipCompose=${skipCompose} out=${outDir}`
   );
 
   const removed: RemovedLead[] = [];
@@ -259,6 +282,45 @@ async function main(): Promise<void> {
     const lastName = cleanText(raw.last_name);
     const companyName = cleanText(raw.company_name) || cleanText(raw.organization);
     const emailBusiness = cleanText(raw.email_business).toLowerCase();
+
+    // Early drops when sheet MX is already known.
+    if (googleOnly) {
+      const sheetMx = mxRecordsField(raw);
+      if (sheetMx && isSegMx(sheetMx)) {
+        removed.push({
+          first_name: firstName,
+          last_name: lastName,
+          company_name: companyName,
+          email: emailBusiness,
+          reason: "security_gateway",
+          detail: sheetMx.slice(0, 120)
+        });
+        continue;
+      }
+      if (sheetMx && espFromMx(sheetMx) === "outlook") {
+        removed.push({
+          first_name: firstName,
+          last_name: lastName,
+          company_name: companyName,
+          email: emailBusiness,
+          reason: "outlook_skipped"
+        });
+        continue;
+      }
+    } else {
+      const sheetMx = mxRecordsField(raw);
+      if (sheetMx && isSegMx(sheetMx)) {
+        removed.push({
+          first_name: firstName,
+          last_name: lastName,
+          company_name: companyName,
+          email: emailBusiness,
+          reason: "security_gateway",
+          detail: sheetMx.slice(0, 120)
+        });
+        continue;
+      }
+    }
 
     if (emailBusiness && existing.has(emailBusiness)) {
       removed.push({
@@ -402,6 +464,18 @@ async function main(): Promise<void> {
       return;
     }
 
+    if (googleOnly && mx.esp === "outlook") {
+      removed.push({
+        first_name: w.firstName,
+        last_name: w.lastName,
+        company_name: w.companyName,
+        email: w.email,
+        reason: "outlook_skipped",
+        detail: mx.mxData.slice(0, 120)
+      });
+      return;
+    }
+
     const tb = await enrichTalentAndBuyer({
       companyName: w.companyName,
       products: productsField(w.raw),
@@ -410,18 +484,25 @@ async function main(): Promise<void> {
       title: cleanText(w.raw.title)
     });
 
-    const email = await composeStaffingSopEmail(
-      {
-        firstName: w.firstName,
-        companyName: w.companyName,
-        talentType: tb.talentType,
-        buyerType: tb.buyerType,
-        companyDescription: cleanText(w.raw.company_description),
-        companyProductsServices: productsField(w.raw),
-        rowIndex: w.index + idx
-      },
-      { fallbackOnly }
-    );
+    const email = skipCompose
+      ? {
+          subject: "{{first_name}}",
+          body: "",
+          framework: 0,
+          wordCount: 0
+        }
+      : await composeStaffingSopEmail(
+          {
+            firstName: w.firstName,
+            companyName: w.companyName,
+            talentType: tb.talentType,
+            buyerType: tb.buyerType,
+            companyDescription: cleanText(w.raw.company_description),
+            companyProductsServices: productsField(w.raw),
+            rowIndex: w.index + idx
+          },
+          { fallbackOnly }
+        );
 
     const esp = mx.esp;
     const isOutlook = esp === "outlook";
@@ -547,12 +628,17 @@ async function main(): Promise<void> {
     config.campaigns.google.workspaceId,
     config.campaigns.google.campaignId
   );
-  const o = await uploadBucket(
-    "outlook",
-    outlookPayloads,
-    config.campaigns.outlook.workspaceId,
-    config.campaigns.outlook.campaignId
-  );
+  const o = googleOnly
+    ? { ok: 0, fail: 0 }
+    : await uploadBucket(
+        "outlook",
+        outlookPayloads,
+        config.campaigns.outlook.workspaceId,
+        config.campaigns.outlook.campaignId
+      );
+  if (googleOnly && outlookPayloads.length) {
+    console.log(`[sop] google-only: skipped outlook upload x${outlookPayloads.length}`);
+  }
 
   fs.writeFileSync(path.join(outDir, "uploaded_leads.csv"), stringify(uploaded, { header: true }));
   fs.writeFileSync(path.join(outDir, "removed_leads.csv"), stringify(removed, { header: true }));
