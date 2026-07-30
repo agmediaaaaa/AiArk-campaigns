@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-07-30T13:38:34.552Z",
+  "input": "data/staffing_sheets",
+  "dry_run": false,
+  "existing_excluded_pool": 18772,
+  "sheet_rows": 15332,
+  "enriched": 1791,
+  "google_payloads": 1791,
+  "outlook_payloads": 0,
+  "removed": 13541,
+  "removed_by_reason": {
+    "already_in_plusvibe": 3452,
+    "outlook_skipped": 4050,
+    "security_gateway": 197,
+    "no_email_found": 5651,
+    "email_unverified": 191
+  },
+  "google_upload_ok": 1791,
+  "google_upload_fail": 0,
+  "outlook_upload_ok": 0,
+  "outlook_upload_fail": 0,
+  "campaigns": {
+    "smtp": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fbfa31a315ac8162d86"
+    },
+    "catchAll": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fbfa31a315ac8162d86"
+    },
+    "google": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fbfa31a315ac8162d86"
+    },
+    "outlook": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fd6dbf8557e58f1f312"
+    }
+  },
+  "notes": {
+    "sheets": [
+      "Sheet2",
+      "Sheet3",
+      "Sheet4",
+      "Sheet5"
+    ],
+    "google_only": true,
+    "skip_compose": true,
+    "unique_uploaded_emails": 1777,
+    "duplicate_rows_in_upload_csv": 14,
+    "campaign_lead_count_after": 2040,
+    "campaign_lead_count_before": 321
+  }
+}
