@@ -1,0 +1,34 @@
+{
+  "vertical": "staffing_founders_sop_v4",
+  "company": {
+    "name": "AI Ark",
+    "description": "AI Ark connects staffing and recruiting firms with employer accounts already hiring their specialty talent."
+  },
+  "product": {
+    "name": "Staffing Partner Outreach",
+    "description": "Outbound to staffing firm founders offering performance-based introductions to employers hiring their talent."
+  },
+  "campaigns": {
+    "smtp": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fbfa31a315ac8162d86"
+    },
+    "catchAll": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fbfa31a315ac8162d86"
+    },
+    "google": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fbfa31a315ac8162d86"
+    },
+    "outlook": {
+      "workspaceId": "69a5b2169433a45c6f6d7d1c",
+      "campaignId": "6a689fd6dbf8557e58f1f312"
+    }
+  },
+  "limits": {
+    "openaiConcurrency": 8,
+    "uploadConcurrency": 3,
+    "uploadBatchSize": 25
+  }
+}
