@@ -329,6 +329,7 @@ async function processLead(
     custom_variables: {
       custom_cold_email: coldEmail.coldEmailHtml,
       custom_talent_type: construction.talentType,
+      custom_facility_type: construction.companyType,
       custom_company_type: construction.companyType,
       custom_candidate_teaser: candidateTeaser,
       custom_candidate_count: String(candidateCount),
