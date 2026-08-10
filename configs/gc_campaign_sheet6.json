@@ -3,11 +3,11 @@
   "campaigns": {
     "googleOthers": {
       "workspaceId": "6a1334c74be1e70c4918deab",
-      "campaignId": "6a4b83668551c2fad96fd1b6"
+      "campaignId": "6a799c79851452336ecd31cb"
     },
     "outlook": {
       "workspaceId": "6a1334c74be1e70c4918deab",
-      "campaignId": "6a4b8de82e4ecfeb61a59117"
+      "campaignId": "6a799c79851452336ecd31cb"
     }
   },
   "limits": {
