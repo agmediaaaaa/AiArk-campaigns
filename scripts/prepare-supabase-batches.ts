@@ -44,7 +44,8 @@ function main(): void {
       string
     >[];
     for (const r of records) {
-      if (String(r.upload_ok).toLowerCase() !== "true") continue;
+      const uploadOk = String(r.upload_ok ?? "").trim().toLowerCase();
+      if (uploadOk !== "true" && uploadOk !== "1" && uploadOk !== "yes") continue;
       const email = clean(r.email);
       if (!email) continue;
       const key = email.toLowerCase();

@@ -1,0 +1,16 @@
+{
+  "vertical": "general_contractor_sheet6",
+  "campaigns": {
+    "googleOthers": {
+      "workspaceId": "6a1334c74be1e70c4918deab",
+      "campaignId": "6a799c79851452336ecd31cb"
+    },
+    "outlook": {
+      "workspaceId": "6a1334c74be1e70c4918deab",
+      "campaignId": "6a799c79851452336ecd31cb"
+    }
+  },
+  "limits": {
+    "rowConcurrency": 5
+  }
+}
