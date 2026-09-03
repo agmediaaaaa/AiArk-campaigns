@@ -94,8 +94,9 @@ async function fetchGvizCsv(spreadsheetId: string, gid: number): Promise<string 
 }
 
 function validEmail(email: string): boolean {
-  // Loose validation; Supabase will still enforce/clean based on schema/unique constraints.
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  // Per requirements we only need the value to *exist* (be non-empty).
+  // The Supabase schema/RPC can still reject invalid emails if needed.
+  return email.trim().length > 0;
 }
 
 async function main(): Promise<void> {
