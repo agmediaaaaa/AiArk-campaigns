@@ -106,11 +106,15 @@ async function main(): Promise<void> {
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_KEY;
-  if (!supabaseUrl || !supabaseKey) throw new Error('SUPABASE_URL/SUPABASE_KEY not set');
-
-  const supabase = createClient(supabaseUrl, supabaseKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const supabase =
+    dryRun
+      ? null
+      : (() => {
+          if (!supabaseUrl || !supabaseKey) throw new Error('SUPABASE_URL/SUPABASE_KEY not set');
+          return createClient(supabaseUrl, supabaseKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
+        })();
 
   // Dedupe across all sheets/tabs by normalized email.
   const byEmail = new Map<string, SupabaseLeadRow>();
@@ -243,6 +247,7 @@ async function main(): Promise<void> {
     const chunk = rows.slice(i, i + chunkSize);
     const fileLike = `${String(Math.floor(i / chunkSize)).padStart(3, '0')}`;
     console.log(`Upserting chunk ${fileLike} size=${chunk.length}...`);
+    if (!supabase) throw new Error('Unexpected: supabase client not initialized');
     const { data, error } = await supabase.rpc('upsert_lead_database_rows', { payload: chunk });
     if (error) {
       throw new Error(`Supabase RPC failed on chunk ${fileLike}: ${error.message}`);
